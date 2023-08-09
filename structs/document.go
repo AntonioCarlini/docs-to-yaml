@@ -12,4 +12,6 @@ type Document struct {
 	PdfProducer string // PDF data: "Producer"
 	PdfVersion  string // PDF data: "Format", this will be, for example, "PDF-1.2"
 	PdfModified string // PDF data: "Modified"
+	Collection  string // Name of collection this document is found in (e.g. "bitsavers")
+	Filepath    string // relative file path of document in collection
 }
