@@ -36,6 +36,11 @@ import (
 
 type Document = types.Document
 
+type PathAndVolume struct {
+	Path   string
+	Volume string
+}
+
 // PdfMetdata is used to record a subset of metadata that can be extracted from a PDF file and will be stored in YAML
 type PdfMetadata struct {
 	Creator  string
@@ -135,7 +140,7 @@ func TidyDocumentTitle(untidyTitle string) string {
 // This function parses any such HTML file to produce a list of files that the index HTML links to
 // and the associated part number and title recorded in the index HTML.
 // If required then an MD5 checksum is generated and PDF metadata is extracted and recorded.
-func ParseIndexHtml(filename string, doMd5 bool, readExif bool) (map[string]Document, map[string]string) {
+func ParseIndexHtml(filename string, volume string, doMd5 bool, readExif bool) (map[string]Document, map[string]string) {
 
 	fmt.Println("Processing", filename)
 	path := filepath.Dir(filename)
@@ -168,10 +173,10 @@ func ParseIndexHtml(filename string, doMd5 bool, readExif bool) (map[string]Docu
 			if len(match) != 4 {
 				log.Fatal("Bad match")
 			} else {
-				filename := match[1]
+				volumePath := match[1]
 				partNumber := strings.TrimSpace(match[2])
 				title := TidyDocumentTitle(match[3])
-				fullFilepath := path + "/" + filename
+				fullFilepath := path + "/" + volumePath
 				absolutePath, err := filepath.Abs(fullFilepath)
 				if err != nil {
 					log.Fatal(err)
@@ -218,7 +223,7 @@ func ParseIndexHtml(filename string, doMd5 bool, readExif bool) (map[string]Docu
 				}
 
 				var newDocument Document
-				newDocument.Format = DetermineFileFormat(filename)
+				newDocument.Format = DetermineFileFormat(volumePath)
 				newDocument.Size = filestats.Size()
 				newDocument.Md5 = md5Checksum
 				newDocument.Title = title
@@ -228,6 +233,7 @@ func ParseIndexHtml(filename string, doMd5 bool, readExif bool) (map[string]Docu
 				newDocument.PdfProducer = pdfMetadata.Producer
 				newDocument.PdfVersion = pdfMetadata.Format
 				newDocument.PdfModified = pdfMetadata.Modified
+				newDocument.Filepath = "file:///" + volume + "/" + volumePath
 				if _, ok := documentsMap[key]; ok {
 					log.Println("Duplicate entry for ", key)
 				}
@@ -244,7 +250,7 @@ func ParseIndexHtml(filename string, doMd5 bool, readExif bool) (map[string]Docu
 // full-path prefix
 // If full-path starts with a double quote, then it ends with one too.
 // Otherwise there is exactly one space between the full-path and the prefix.
-func ParseIndirectFile(indirectFile string) []string {
+func ParseIndirectFile(indirectFile string) []PathAndVolume {
 
 	file, err := os.Open(indirectFile)
 	if err != nil {
@@ -252,7 +258,7 @@ func ParseIndirectFile(indirectFile string) []string {
 
 	}
 
-	var result []string
+	var result []PathAndVolume
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -261,13 +267,15 @@ func ParseIndirectFile(indirectFile string) []string {
 			continue
 		}
 		if line[0:1] == "\"" {
-			re := regexp.MustCompile(`"([^"]+)"`)
+			re := regexp.MustCompile(`"([^"]+)"\s*(.*)$`)
 			quotedString := re.FindStringSubmatch(line)
 			fmt.Println("Matched", quotedString)
-			result = append(result, quotedString[1])
+			//pathPlusVolume := PathAndVolume{ Path: quotedString[1], Volume: quotedString[2] }
+			result = append(result, PathAndVolume{Path: quotedString[1], Volume: quotedString[2]})
 		} else {
 			portions := strings.Split(line, " ")
-			result = append(result, portions[0])
+			// pathPlusVolume := PathAndVolume{Path: portions[0], Volume: portions[1]}
+			result = append(result, PathAndVolume{Path: portions[0], Volume: portions[1]})
 		}
 	}
 	return result
@@ -295,10 +303,10 @@ func main() {
 	documentsMap := make(map[string]Document)
 	md5Map := make(map[string]string)
 
-	filepaths := ParseIndirectFile(*indirectFile)
+	filepathsAndVolumes := ParseIndirectFile(*indirectFile)
 
-	for _, path := range filepaths {
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(path, md5Gen, *exifRead)
+	for _, item := range filepathsAndVolumes {
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(item.Path, item.Volume, md5Gen, *exifRead)
 		if *verbose {
 			for i, doc := range documentsMap {
 				fmt.Println("doc", i, "=>", doc)
