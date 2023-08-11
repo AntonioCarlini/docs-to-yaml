@@ -1,6 +1,6 @@
 package main
 
-// The intention of this program is to record the information necessary to determine which documents in the local document collection
+// The purpose of this program is to record the information necessary to determine which documents in the local document collection
 // are not duplicated in other repositories on the internet. A side effect will be to produce an accurate list of local documents
 // in a form that makes it easy to perform future analysis.
 //
@@ -36,6 +36,7 @@ import (
 
 type Document = types.Document
 
+// PathAndVolume is used when parsing the indirect file
 type PathAndVolume struct {
 	Path   string
 	Volume string
@@ -47,6 +48,13 @@ type PdfMetadata struct {
 	Producer string
 	Format   string
 	Modified string
+}
+
+// Md5Cache records information about the MD5 cache itself.
+type Md5Cache struct {
+	Active           bool              // True if the cache is in use
+	Dirty            bool              // True if the cache has been modified (and should be written out)
+	CacheOfPathToMd5 map[string]string // A cache of path => computed MD5 sum
 }
 
 // The index HTML files written to the various DVDs were tested on a Windows system, which performs case-insensitive
@@ -140,9 +148,12 @@ func TidyDocumentTitle(untidyTitle string) string {
 // This function parses any such HTML file to produce a list of files that the index HTML links to
 // and the associated part number and title recorded in the index HTML.
 // If required then an MD5 checksum is generated and PDF metadata is extracted and recorded.
-func ParseIndexHtml(filename string, volume string, doMd5 bool, readExif bool) (map[string]Document, map[string]string) {
 
-	fmt.Println("Processing", filename)
+func ParseIndexHtml(filename string, volume string, doMd5 bool, md5Cache *Md5Cache, readExif bool, verbose bool) (map[string]Document, map[string]string) {
+
+	if verbose {
+		fmt.Println("Processing", filename)
+	}
 	path := filepath.Dir(filename)
 	bytes, err := os.ReadFile(filename)
 	if err != nil {
@@ -168,7 +179,9 @@ func ParseIndexHtml(filename string, volume string, doMd5 bool, readExif bool) (
 	if len(title_matches) == 0 {
 		log.Fatal("No matches found")
 	} else {
-		fmt.Println("Found", len(title_matches), "documents")
+		if verbose {
+			fmt.Println("Found", len(title_matches), "documents")
+		}
 		for _, match := range title_matches {
 			if len(match) != 4 {
 				log.Fatal("Bad match")
@@ -194,15 +207,13 @@ func ParseIndexHtml(filename string, volume string, doMd5 bool, readExif bool) (
 					log.Fatal("Too many files found:", candidateFile)
 				}
 
+				// If requested, find the file's MD5 sum
 				md5Checksum := ""
 				if doMd5 {
-					fileBytes, err := os.ReadFile(candidateFile[0])
+					md5Checksum, err = CalculateMd5Sum(candidateFile[0], md5Cache, verbose)
 					if err != nil {
 						log.Fatal(err)
 					}
-					md5Hash := md5.Sum(fileBytes)
-					md5Checksum = hex.EncodeToString(md5Hash[:])
-					// fmt.Println("MD5:      ", md5Checksum)
 				}
 				key := md5Checksum
 				if key == "" {
@@ -234,11 +245,12 @@ func ParseIndexHtml(filename string, volume string, doMd5 bool, readExif bool) (
 				newDocument.PdfVersion = pdfMetadata.Format
 				newDocument.PdfModified = pdfMetadata.Modified
 				newDocument.Filepath = "file:///" + volume + "/" + volumePath
+				// If a duplicate is found, keep the previous entry
 				if _, ok := documentsMap[key]; ok {
-					log.Println("Duplicate entry for ", key)
+					log.Println("Duplicate entry for ", key, " path: ", newDocument.Filepath, " previous: ", documentsMap[key].Filepath)
+				} else {
+					documentsMap[key] = newDocument
 				}
-				documentsMap[key] = newDocument
-				md5Map[md5Checksum] = candidateFile[0]
 			}
 		}
 	}
@@ -269,12 +281,9 @@ func ParseIndirectFile(indirectFile string) []PathAndVolume {
 		if line[0:1] == "\"" {
 			re := regexp.MustCompile(`"([^"]+)"\s*(.*)$`)
 			quotedString := re.FindStringSubmatch(line)
-			fmt.Println("Matched", quotedString)
-			//pathPlusVolume := PathAndVolume{ Path: quotedString[1], Volume: quotedString[2] }
 			result = append(result, PathAndVolume{Path: quotedString[1], Volume: quotedString[2]})
 		} else {
 			portions := strings.Split(line, " ")
-			// pathPlusVolume := PathAndVolume{Path: portions[0], Volume: portions[1]}
 			result = append(result, PathAndVolume{Path: portions[0], Volume: portions[1]})
 		}
 	}
@@ -285,9 +294,11 @@ func ParseIndirectFile(indirectFile string) []PathAndVolume {
 func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose reporting")
 	yamlOutputFilename := flag.String("yaml", "", "filepath of the output file to hold the generated yaml")
-	md5OutputFilename := flag.String("md5", "", "filepath of the output file to hold the generated MD5 => file map")
+	md5Gen := flag.Bool("md5-sum", false, "Enable generation of MD5 sums")
 	exifRead := flag.Bool("exif", false, "Enable EXIF reading")
 	indirectFile := flag.String("indirect-file", "", "a file that contains a set of directories to process")
+	md5CacheFilename := flag.String("md5-cache", "", "filepath of the file that holds the volume path => MD5sum map")
+	md5CacheCreate := flag.Bool("md5-create-cache", false, "allow for the case of a non-existent MD5 cache file")
 
 	flag.Parse()
 
@@ -295,9 +306,9 @@ func main() {
 		log.Fatal("Please supply a filespec for the output YAML")
 	}
 
-	md5Gen := false
-	if *md5OutputFilename != "" {
-		md5Gen = true
+	md5Cache, err := Md5CacheInit(*md5CacheFilename, *md5CacheCreate)
+	if err != nil {
+		fmt.Printf("Problem initialising MD5 cache: %+v\n", err)
 	}
 
 	documentsMap := make(map[string]Document)
@@ -306,7 +317,7 @@ func main() {
 	filepathsAndVolumes := ParseIndirectFile(*indirectFile)
 
 	for _, item := range filepathsAndVolumes {
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(item.Path, item.Volume, md5Gen, *exifRead)
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(item.Path, item.Volume, *md5Gen, md5Cache, *exifRead, *verbose)
 		if *verbose {
 			for i, doc := range documentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -321,6 +332,7 @@ func main() {
 		}
 	}
 
+	// Write the output YAML file
 	data, err := yaml.Marshal(&documentsMap)
 	if err != nil {
 		log.Fatal("Bad YAML data: ", err)
@@ -331,14 +343,87 @@ func main() {
 		log.Fatal("Failed YAML write: ", err)
 	}
 
-	if md5Gen {
-		md5Data, err := yaml.Marshal(&md5Map)
+	// If the MD5 cache is active and it has been modified ... write it out
+	if md5Cache.Active && md5Cache.Dirty {
+		fmt.Println("Writing MD5 cache")
+		md5Data, err := yaml.Marshal(md5Cache.CacheOfPathToMd5)
 		if err != nil {
 			log.Fatal("Bad MD5data: ", err)
 		}
-		err = os.WriteFile(*md5OutputFilename, md5Data, 0644)
+		err = os.WriteFile(*md5CacheFilename, md5Data, 0644)
 		if err != nil {
 			log.Fatal("Failed MD5 write: ", err)
 		}
 	}
+}
+
+// Prepares the MD% cache for use.
+// If no MD5 cache file has been specified, create it if allowed.
+// Load YAML data from the cache file (if any).
+//
+// On exit, if no errors occur, the cache is in a valid state.
+func Md5CacheInit(md5CacheFilename string, createIfMissing bool) (*Md5Cache, error) {
+	md5Cache := new(Md5Cache)
+	md5Cache.Active = false
+	md5Cache.Dirty = false
+	md5Cache.CacheOfPathToMd5 = make(map[string]string)
+	// If a cache exists, read it; possibly create, it if allowed to do so.
+	if md5CacheFilename != "" {
+		file, err := os.ReadFile(md5CacheFilename)
+		if err != nil {
+			if os.IsNotExist(err) {
+				if createIfMissing {
+					newFile, err := os.Create(md5CacheFilename)
+					if err != nil {
+						return md5Cache, err
+					}
+					newFile.Close()
+					fmt.Printf("Created empty cache file: %s\n", md5CacheFilename)
+					file, err = os.ReadFile(md5CacheFilename)
+					if err != nil {
+						return md5Cache, err
+					}
+				} else {
+					return md5Cache, err
+				}
+			}
+		}
+		md5Cache.Active = true
+		// Read the existing cache YAML data into the cache
+		err = yaml.Unmarshal(file, md5Cache.CacheOfPathToMd5)
+		if err != nil {
+			fmt.Println("MD5 cache: failed to unmarshal")
+			return md5Cache, err
+		}
+		fmt.Printf("Initial  number of MD5 cache entries: %d\n", len(md5Cache.CacheOfPathToMd5))
+	}
+
+	return md5Cache, nil
+}
+
+// Return the MD5 sum for the specified file.
+// Start by looking up the filename (path) in the cache and return a pre-computed MD5 sum if found.
+// Otherwise, compute the MD5 sum, add the entry to the cache, mark the cache as dirty and return the computed MD5 sum.
+func CalculateMd5Sum(filename string, md5Cache *Md5Cache, verbose bool) (string, error) {
+
+	// Lookup the filename (path) in the cache; if found report that as the MD5 sum
+	if md5, found := md5Cache.CacheOfPathToMd5[filename]; found {
+		if verbose {
+			fmt.Printf("MD5 Cache: Found %s for %s\n", md5, filename)
+		}
+		return md5, nil
+	}
+
+	// The filename (path) is not in the cache.
+	// Generate the MD5 sum, add the value to the cache and mark the cache as Dirty
+	fileBytes, err := os.ReadFile(filename)
+	if err != nil {
+		return "", err
+	}
+	md5Hash := md5.Sum(fileBytes)
+	md5Checksum := hex.EncodeToString(md5Hash[:])
+	md5Cache.CacheOfPathToMd5[filename] = md5Checksum
+	md5Cache.Dirty = true
+	fmt.Printf("MD5 Cache: wrote %s for %s\n", md5Checksum, filename)
+	return md5Checksum, nil
 }
