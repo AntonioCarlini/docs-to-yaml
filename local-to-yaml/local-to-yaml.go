@@ -21,7 +21,6 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -118,10 +117,11 @@ func DetermineFileFormat(filename string) string {
 }
 
 // Clean up a document title that has been read from HTML.
-//  o remove leading/trailing whitespace
-//  o remove CRLF
-//  o collapse duplicate whitespace
-//  o replace "<BR><BR>", " <BR>" and "<BR>" with something sensible
+//
+//	o remove leading/trailing whitespace
+//	o remove CRLF
+//	o collapse duplicate whitespace
+//	o replace "<BR><BR>", " <BR>" and "<BR>" with something sensible
 func TidyDocumentTitle(untidyTitle string) string {
 	title := strings.TrimSpace(untidyTitle)
 	title = strings.Replace(title, "\r\n", "", -1)
@@ -139,7 +139,7 @@ func ParseIndexHtml(filename string, doMd5 bool, readExif bool) (map[string]Docu
 
 	fmt.Println("Processing", filename)
 	path := filepath.Dir(filename)
-	bytes, err := ioutil.ReadFile(filename)
+	bytes, err := os.ReadFile(filename)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func ParseIndexHtml(filename string, doMd5 bool, readExif bool) (map[string]Docu
 
 				md5Checksum := ""
 				if doMd5 {
-					fileBytes, err := ioutil.ReadFile(candidateFile[0])
+					fileBytes, err := os.ReadFile(candidateFile[0])
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -243,7 +243,7 @@ func ParseIndexHtml(filename string, doMd5 bool, readExif bool) (map[string]Docu
 // Each line of the indirect file consist of:
 // full-path prefix
 // If full-path starts with a double quote, then it ends with one too.
-// Otherwise there is exactly one space between the fill-path and the prefix.
+// Otherwise there is exactly one space between the full-path and the prefix.
 func ParseIndirectFile(indirectFile string) []string {
 
 	file, err := os.Open(indirectFile)
@@ -318,7 +318,7 @@ func main() {
 		log.Fatal("Bad YAML data: ", err)
 	}
 
-	err = ioutil.WriteFile(*yamlOutputFilename, data, 0644)
+	err = os.WriteFile(*yamlOutputFilename, data, 0644)
 	if err != nil {
 		log.Fatal("Failed YAML write: ", err)
 	}
@@ -328,7 +328,7 @@ func main() {
 		if err != nil {
 			log.Fatal("Bad MD5data: ", err)
 		}
-		err = ioutil.WriteFile(*md5OutputFilename, md5Data, 0644)
+		err = os.WriteFile(*md5OutputFilename, md5Data, 0644)
 		if err != nil {
 			log.Fatal("Failed MD5 write: ", err)
 		}
