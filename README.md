@@ -3,6 +3,9 @@ This repository holds a number of programs (mostly in Go) to help me manage the 
 
 This currently covers the collection of computer-related manuals, mostly produced by manufacturers such as DEC. It currently does not cover other documents, such as e-book and magazines which may have been acquired from the internet, although this position may change in the future.
 
+### bitsavers-to-yaml
+
+Takes a copy of IndexByDate.txt that has been downloaded from bitsavers, along with a file that supplies the MD5 sums for many of those files and produces a YAML file that describes the subset of DEC-related information.
 
 ### local-to-yaml
 
@@ -11,5 +14,5 @@ The intention is to combine this with other YAML data about various sites on the
 
 ### manx-to-yaml
 
-This program takes a cut-down portion of the SQL dump of the manx (a catalogue of computer manuals) database from 2010 and turns it into a YAML file describing the relevant parts of each entry.
+This program takes a cut-down portion of the SQL dump of the manx (a catalogue of computer manuals) database from 2010 and turns it into a YAML file describing the relevant parts of each entry. Since I managed to obtain a more up to date source of bitsavers MD5 checksums, this programme is less likely to be useful. It will still produce a set of older MD5 checksums which might be useful in verifying that some of the files I have match older versions that were available on bitsavers in the past.
 
