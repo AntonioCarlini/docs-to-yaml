@@ -272,7 +272,11 @@ func ParseIndexHtml(filename string, volume string, doMd5 bool, md5Cache *Md5Cac
 				newDocument.Filepath = "file:///" + volume + "/" + volumePath
 				// If a duplicate is found, keep the previous entry
 				if _, ok := documentsMap[key]; ok {
-					log.Println("Duplicate entry for ", key, " path: ", newDocument.Filepath, " previous: ", documentsMap[key].Filepath)
+					// If the duplicated entries share the same filepath, then the same file is linked to
+					// more than once. This is not a true "conflicting" duplicate, so suppress the report.
+					if newDocument.Filepath != documentsMap[key].Filepath {
+						log.Println("Duplicate entry for ", key, " path: ", newDocument.Filepath, " previous: ", documentsMap[key].Filepath)
+					}
 				} else {
 					documentsMap[key] = newDocument
 				}
@@ -293,7 +297,11 @@ func BuildCaseInsensitivePathGlob(path string) string {
 		if unicode.IsLetter(r) {
 			p += fmt.Sprintf("[%c%c]", unicode.ToLower(r), unicode.ToUpper(r))
 		} else {
-			p += string(r)
+			if (r == '[') || (r == ']') {
+				p += "\\" + string(r)
+			} else {
+				p += string(r)
+			}
 		}
 	}
 	return p
