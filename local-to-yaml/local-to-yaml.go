@@ -140,20 +140,31 @@ func ParseIndirectFile(indirectFile string) []PathAndVolume {
 	}
 
 	var result []PathAndVolume
-
+	lineNumber := 0
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
+		lineNumber += 1
 		if len(line) == 0 {
 			continue
 		}
 		if line[0:1] == "\"" {
 			re := regexp.MustCompile(`"([^"]+)"\s*(.*)$`)
 			quotedString := re.FindStringSubmatch(line)
-			result = append(result, PathAndVolume{Path: quotedString[1], Volume: quotedString[2]})
+			if quotedString == nil {
+				log.Fatalf("indirect file line %d, cannot parse line with double quote: [%s])\n", lineNumber, line)
+			} else if len(quotedString) < 2 {
+				log.Fatalf("indirect file line %d, missing volume name (after %s)\n", lineNumber, quotedString[0])
+			} else {
+				result = append(result, PathAndVolume{Path: quotedString[1], Volume: quotedString[2]})
+			}
 		} else {
 			portions := strings.Split(line, " ")
-			result = append(result, PathAndVolume{Path: portions[0], Volume: portions[1]})
+			if len(portions) == 2 {
+				result = append(result, PathAndVolume{Path: portions[0], Volume: portions[1]})
+			} else {
+				log.Fatalf("indirect file line %d, cannot parse line: [%s] (%d portions))\n", lineNumber, line, len(portions))
+			}
 		}
 	}
 	return result
