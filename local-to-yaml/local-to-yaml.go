@@ -57,98 +57,112 @@ type Md5Cache struct {
 	CacheOfPathToMd5 map[string]string // A cache of path => computed MD5 sum
 }
 
-// The index HTML files written to the various DVDs were tested on a Windows system, which performs case-insensitive
-// filename matching. Linux has no way to perform case-insensitive matching. So this funcion turns each letter in the
-// putative filepath into a regexp expression that matches either the uppercase of the lowercase version of that
-// letter.
-func BuildCaseInsensitivePathGlob(path string) string {
-	p := ""
-	for _, r := range path {
-		if unicode.IsLetter(r) {
-			p += fmt.Sprintf("[%c%c]", unicode.ToLower(r), unicode.ToUpper(r))
-		} else {
-			p += string(r)
+// Main entry point.
+// Processes the indirect file.
+// For each entry, parses the specified HTML file.
+// Finally outputs the cumulative YAML file.
+func main() {
+	verbose := flag.Bool("verbose", false, "Enable verbose reporting")
+	yamlOutputFilename := flag.String("yaml", "", "filepath of the output file to hold the generated yaml")
+	md5Gen := flag.Bool("md5-sum", false, "Enable generation of MD5 sums")
+	exifRead := flag.Bool("exif", false, "Enable EXIF reading")
+	indirectFile := flag.String("indirect-file", "", "a file that contains a set of directories to process")
+	md5CacheFilename := flag.String("md5-cache", "", "filepath of the file that holds the volume path => MD5sum map")
+	md5CacheCreate := flag.Bool("md5-create-cache", false, "allow for the case of a non-existent MD5 cache file")
+
+	flag.Parse()
+
+	if *yamlOutputFilename == "" {
+		log.Fatal("Please supply a filespec for the output YAML")
+	}
+
+	md5Cache, err := Md5CacheInit(*md5CacheFilename, *md5CacheCreate)
+	if err != nil {
+		fmt.Printf("Problem initialising MD5 cache: %+v\n", err)
+	}
+
+	documentsMap := make(map[string]Document)
+	md5Map := make(map[string]string)
+
+	filepathsAndVolumes := ParseIndirectFile(*indirectFile)
+
+	for _, item := range filepathsAndVolumes {
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(item.Path, item.Volume, *md5Gen, md5Cache, *exifRead, *verbose)
+		if *verbose {
+			for i, doc := range documentsMap {
+				fmt.Println("doc", i, "=>", doc)
+			}
+			fmt.Println("found ", len(documentsMap), "documents")
+		}
+		for k, v := range extraDocumentsMap {
+			documentsMap[k] = v
+		}
+		for k, v := range extraMd5Map {
+			md5Map[k] = v
 		}
 	}
-	return p
+
+	// Write the output YAML file
+	data, err := yaml.Marshal(&documentsMap)
+	if err != nil {
+		log.Fatal("Bad YAML data: ", err)
+	}
+
+	err = os.WriteFile(*yamlOutputFilename, data, 0644)
+	if err != nil {
+		log.Fatal("Failed YAML write: ", err)
+	}
+
+	// If the MD5 cache is active and it has been modified ... write it out
+	if md5Cache.Active && md5Cache.Dirty {
+		fmt.Println("Writing MD5 cache")
+		md5Data, err := yaml.Marshal(md5Cache.CacheOfPathToMd5)
+		if err != nil {
+			log.Fatal("Bad MD5data: ", err)
+		}
+		err = os.WriteFile(*md5CacheFilename, md5Data, 0644)
+		if err != nil {
+			log.Fatal("Failed MD5 write: ", err)
+		}
+	}
 }
 
-// Given a PDF file, this function finds the associated metdata and returns those elements that will be stored in the YAML.
-func ExtractPdfMetadata(pdfFilename string) PdfMetadata {
-	et, err := exiftool.NewExiftool()
-	if err != nil {
-		log.Printf("Error when intializing: %v\n", err)
-	}
-	defer et.Close()
+// Each line of the indirect file consist of:
+// full-path prefix
+// If full-path starts with a double quote, then it ends with one too.
+// Otherwise there is exactly one space between the full-path and the prefix.
+func ParseIndirectFile(indirectFile string) []PathAndVolume {
 
-	fileInfos := et.ExtractMetadata(pdfFilename)
-	metadata := PdfMetadata{}
-	for _, fileInfo := range fileInfos {
-		if fileInfo.Err != nil {
-			fmt.Printf("Error concerning %v: %v\n", fileInfo.File, fileInfo.Err)
+	file, err := os.Open(indirectFile)
+	if err != nil {
+		log.Fatalf("failed to open")
+
+	}
+
+	var result []PathAndVolume
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if len(line) == 0 {
 			continue
 		}
-
-		for k, v := range fileInfo.Fields {
-			if k == "Creator" {
-				metadata.Creator = v.(string)
-			}
-			if k == "Producer" {
-				metadata.Producer = v.(string)
-			}
-			if k == "PDFVersion" {
-				metadata.Format = strings.TrimRight(fmt.Sprintf("%f", v.(float64)), "0")
-			}
-			if k == "ModifyDate" {
-				metadata.Modified = v.(string)
-			}
+		if line[0:1] == "\"" {
+			re := regexp.MustCompile(`"([^"]+)"\s*(.*)$`)
+			quotedString := re.FindStringSubmatch(line)
+			result = append(result, PathAndVolume{Path: quotedString[1], Volume: quotedString[2]})
+		} else {
+			portions := strings.Split(line, " ")
+			result = append(result, PathAndVolume{Path: portions[0], Volume: portions[1]})
 		}
 	}
-
-	return metadata
-}
-
-// Determine the file format. This will be TXT, PDF, RNO etc.
-// For now, it can just be the filetype, as long as it is one of
-// a recognised set. If necessary this could be expanded to use the mimetype
-// package.
-// Note that "HTM" will be returned as "HTML": both types exist in the collection but it makes no sense to allow both!
-var KnownFileTypes = [...]string{"PDF", "TXT", "MEM", "RNO", "PS", "HTM", "HTML", "ZIP", "LN3"}
-
-func DetermineFileFormat(filename string) string {
-	filetype := strings.TrimPrefix(strings.ToUpper(filepath.Ext(filename)), ".")
-	if filetype == "HTM" {
-		filetype = "HTML"
-	}
-	for _, entry := range KnownFileTypes {
-		if entry == filetype {
-			return filetype
-		}
-	}
-	log.Fatal("Unknown filetype: ", filetype)
-	return "???"
-}
-
-// Clean up a document title that has been read from HTML.
-//
-//	o remove leading/trailing whitespace
-//	o remove CRLF
-//	o collapse duplicate whitespace
-//	o replace "<BR><BR>", " <BR>" and "<BR>" with something sensible
-func TidyDocumentTitle(untidyTitle string) string {
-	title := strings.TrimSpace(untidyTitle)
-	title = strings.Replace(title, "\r\n", "", -1)
-	title = strings.Join(strings.Fields(title), " ") // Collapse duplicate whitespace
-	re := regexp.MustCompile(`\s*<BR>(?:<BR>)*`)
-	title = re.ReplaceAllString(title, ". ")
-	return title
+	return result
 }
 
 // The index HTML files written to the DVDs are almost all in one of two (similar) formats.
 // This function parses any such HTML file to produce a list of files that the index HTML links to
 // and the associated part number and title recorded in the index HTML.
 // If required then an MD5 checksum is generated and PDF metadata is extracted and recorded.
-
 func ParseIndexHtml(filename string, volume string, doMd5 bool, md5Cache *Md5Cache, readExif bool, verbose bool) (map[string]Document, map[string]string) {
 
 	if verbose {
@@ -258,103 +272,96 @@ func ParseIndexHtml(filename string, volume string, doMd5 bool, md5Cache *Md5Cac
 	return documentsMap, md5Map
 }
 
-// Each line of the indirect file consist of:
-// full-path prefix
-// If full-path starts with a double quote, then it ends with one too.
-// Otherwise there is exactly one space between the full-path and the prefix.
-func ParseIndirectFile(indirectFile string) []PathAndVolume {
-
-	file, err := os.Open(indirectFile)
-	if err != nil {
-		log.Fatalf("failed to open")
-
-	}
-
-	var result []PathAndVolume
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if len(line) == 0 {
-			continue
-		}
-		if line[0:1] == "\"" {
-			re := regexp.MustCompile(`"([^"]+)"\s*(.*)$`)
-			quotedString := re.FindStringSubmatch(line)
-			result = append(result, PathAndVolume{Path: quotedString[1], Volume: quotedString[2]})
+// The index HTML files written to the various DVDs were tested on a Windows system, which performs case-insensitive
+// filename matching. Linux has no way to perform case-insensitive matching. So this funcion turns each letter in the
+// putative filepath into a regexp expression that matches either the uppercase of the lowercase version of that
+// letter.
+func BuildCaseInsensitivePathGlob(path string) string {
+	p := ""
+	for _, r := range path {
+		if unicode.IsLetter(r) {
+			p += fmt.Sprintf("[%c%c]", unicode.ToLower(r), unicode.ToUpper(r))
 		} else {
-			portions := strings.Split(line, " ")
-			result = append(result, PathAndVolume{Path: portions[0], Volume: portions[1]})
+			p += string(r)
 		}
 	}
-	return result
+	return p
 }
 
-// Main entry point
-func main() {
-	verbose := flag.Bool("verbose", false, "Enable verbose reporting")
-	yamlOutputFilename := flag.String("yaml", "", "filepath of the output file to hold the generated yaml")
-	md5Gen := flag.Bool("md5-sum", false, "Enable generation of MD5 sums")
-	exifRead := flag.Bool("exif", false, "Enable EXIF reading")
-	indirectFile := flag.String("indirect-file", "", "a file that contains a set of directories to process")
-	md5CacheFilename := flag.String("md5-cache", "", "filepath of the file that holds the volume path => MD5sum map")
-	md5CacheCreate := flag.Bool("md5-create-cache", false, "allow for the case of a non-existent MD5 cache file")
-
-	flag.Parse()
-
-	if *yamlOutputFilename == "" {
-		log.Fatal("Please supply a filespec for the output YAML")
-	}
-
-	md5Cache, err := Md5CacheInit(*md5CacheFilename, *md5CacheCreate)
+// Given a PDF file, this function finds the associated metdata and returns those elements that will be stored in the YAML.
+func ExtractPdfMetadata(pdfFilename string) PdfMetadata {
+	et, err := exiftool.NewExiftool()
 	if err != nil {
-		fmt.Printf("Problem initialising MD5 cache: %+v\n", err)
+		log.Printf("Error when intializing: %v\n", err)
 	}
+	defer et.Close()
 
-	documentsMap := make(map[string]Document)
-	md5Map := make(map[string]string)
+	fileInfos := et.ExtractMetadata(pdfFilename)
+	metadata := PdfMetadata{}
+	for _, fileInfo := range fileInfos {
+		if fileInfo.Err != nil {
+			fmt.Printf("Error concerning %v: %v\n", fileInfo.File, fileInfo.Err)
+			continue
+		}
 
-	filepathsAndVolumes := ParseIndirectFile(*indirectFile)
-
-	for _, item := range filepathsAndVolumes {
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(item.Path, item.Volume, *md5Gen, md5Cache, *exifRead, *verbose)
-		if *verbose {
-			for i, doc := range documentsMap {
-				fmt.Println("doc", i, "=>", doc)
+		for k, v := range fileInfo.Fields {
+			if k == "Creator" {
+				metadata.Creator = v.(string)
 			}
-			fmt.Println("found ", len(documentsMap), "documents")
-		}
-		for k, v := range extraDocumentsMap {
-			documentsMap[k] = v
-		}
-		for k, v := range extraMd5Map {
-			md5Map[k] = v
+			if k == "Producer" {
+				metadata.Producer = v.(string)
+			}
+			if k == "PDFVersion" {
+				metadata.Format = strings.TrimRight(fmt.Sprintf("%f", v.(float64)), "0")
+			}
+			if k == "ModifyDate" {
+				metadata.Modified = v.(string)
+			}
 		}
 	}
 
-	// Write the output YAML file
-	data, err := yaml.Marshal(&documentsMap)
-	if err != nil {
-		log.Fatal("Bad YAML data: ", err)
+	return metadata
+}
+
+// Determine the file format. This will be TXT, PDF, RNO etc.
+// For now, it can just be the filetype, as long as it is one of
+// a recognised set. If necessary this could be expanded to use the mimetype
+// package.
+// Note that "HTM" will be returned as "HTML": both types exist in the collection but it makes no sense to allow both!
+// Similarly "JPG" will be returned as "JPEG".
+var KnownFileTypes = [...]string{"PDF", "TXT", "MEM", "RNO", "PS", "HTM", "HTML", "ZIP", "LN3", "TIF", "JPG", "JPEG"}
+
+func DetermineFileFormat(filename string) string {
+	filetype := strings.TrimPrefix(strings.ToUpper(filepath.Ext(filename)), ".")
+	if filetype == "HTM" {
+		filetype = "HTML"
+	}
+	if filetype == "JPE" {
+		filetype = "JPEG"
 	}
 
-	err = os.WriteFile(*yamlOutputFilename, data, 0644)
-	if err != nil {
-		log.Fatal("Failed YAML write: ", err)
+	for _, entry := range KnownFileTypes {
+		if entry == filetype {
+			return filetype
+		}
 	}
+	log.Fatal("Unknown filetype: ", filetype)
+	return "???"
+}
 
-	// If the MD5 cache is active and it has been modified ... write it out
-	if md5Cache.Active && md5Cache.Dirty {
-		fmt.Println("Writing MD5 cache")
-		md5Data, err := yaml.Marshal(md5Cache.CacheOfPathToMd5)
-		if err != nil {
-			log.Fatal("Bad MD5data: ", err)
-		}
-		err = os.WriteFile(*md5CacheFilename, md5Data, 0644)
-		if err != nil {
-			log.Fatal("Failed MD5 write: ", err)
-		}
-	}
+// Clean up a document title that has been read from HTML.
+//
+//	o remove leading/trailing whitespace
+//	o remove CRLF
+//	o collapse duplicate whitespace
+//	o replace "<BR><BR>", " <BR>" and "<BR>" with something sensible
+func TidyDocumentTitle(untidyTitle string) string {
+	title := strings.TrimSpace(untidyTitle)
+	title = strings.Replace(title, "\r\n", "", -1)
+	title = strings.Join(strings.Fields(title), " ") // Collapse duplicate whitespace
+	re := regexp.MustCompile(`\s*<BR>(?:<BR>)*`)
+	title = re.ReplaceAllString(title, ". ")
+	return title
 }
 
 // Prepares the MD% cache for use.
