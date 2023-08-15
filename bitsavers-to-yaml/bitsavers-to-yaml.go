@@ -203,6 +203,10 @@ func MakeDocumentsFromPaths(md5File string, documentPaths []string) map[string]D
 	documentsMap := make(map[string]Document)
 	name_to_md5 := load_manx_md5_data(md5File)
 	for _, path := range documentPaths {
+		if strings.HasPrefix(path, "dec/pdp11/microfiche/Diagnostic_Program_Listings/") || strings.HasPrefix(path, "dec/vax/microfiche/vms-source-listings/") {
+			continue
+		}
+
 		newDocument := CreateBitsaversDocument(path)
 		filename := filepath.Base(path)
 
@@ -257,7 +261,7 @@ func MakeDocumentsFromPaths(md5File string, documentPaths []string) map[string]D
 			} else {
 				newDocument.Md5 = "TITLE: " + newDocument.Title
 			}
-			// fmt.Println("entry without MD5:    ", path, " FN: ", newDocument.Title)
+			fmt.Println("entry without MD5:    ", path)
 		}
 
 		documentsMap[key] = newDocument
