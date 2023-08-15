@@ -49,6 +49,7 @@ func main() {
 	bitsavers_index_filename := "data/bitsavers-IndexByDate.txt"
 	bitsavers_md5_filename := "data/site.bitsavers.2021-10-01.md5"
 	output_file := "bitsavers.yaml"
+	verbose := false
 
 	docs = FindAcceptablePaths(bitsavers_index_filename)
 
@@ -58,7 +59,7 @@ func main() {
 	// If no part number is present, use the title
 	// Look for duplicate (non-empty) MD5 values
 
-	documentsMap := MakeDocumentsFromPaths(bitsavers_md5_filename, docs)
+	documentsMap := MakeDocumentsFromPaths(bitsavers_md5_filename, docs, verbose)
 
 	// Construct the YAML data and write it out to a file
 	data, err := yaml.Marshal(&documentsMap)
@@ -80,8 +81,8 @@ func main() {
 
 func FindAcceptablePaths(filename string) []string {
 	dec_prefixes := []string{"dec/", "able/", "dilog/", "emulex/", "mentec/", "terak/"}
-	reject_file_types := []string{".bin", ".gz", ".hex", ".jpg", ".lbl", ".lst", ".mcr", ".p75", ".png", ".pt", ".tar", ".tif", ".tiff", ".zip"}
-	accept_file_types := []string{".html", ".pdf", ".txt"}
+	reject_file_types := []string{".bin", ".gz", ".hex", ".jpg", ".lbl", ".lst", ".mcr", ".p75", ".png", ".pt", ".tar", ".tif", ".tiff", ".zip", ".dat", ".sav", ".jp2"}
+	accept_file_types := []string{".html", ".pdf", ".txt", ".doc", ".ln03"}
 
 	// Open the bitsavers index file, complaining loudly on failure
 	file, err := os.Open(filename)
@@ -199,7 +200,7 @@ func CreateBitsaversDocument(path string) Document {
 // analyses each path and turns it into a Document struct.
 //
 // If the file path appears in the available MD5 data file, then that MD5 is used in the Document.
-func MakeDocumentsFromPaths(md5File string, documentPaths []string) map[string]Document {
+func MakeDocumentsFromPaths(md5File string, documentPaths []string, verbose bool) map[string]Document {
 	documentsMap := make(map[string]Document)
 	name_to_md5 := load_manx_md5_data(md5File)
 	for _, path := range documentPaths {
@@ -242,7 +243,9 @@ func MakeDocumentsFromPaths(md5File string, documentPaths []string) map[string]D
 					newDocument.PubDate = "19" + possibleYear + "-" + monthNumber
 					// fmt.Printf("DATE SEEN:  DATE:[%10s] TL:[%s] %d %s\n", newDocument.PubDate, newDocument.Title, titleLength, possibleMonth)
 				} else {
-					fmt.Printf("NO DATE:    DATE:[%10s] TL:[%s] M:[%s]\n", newDocument.PubDate, newDocument.Title, possibleMonth)
+					if verbose {
+						fmt.Printf("NO DATE:    DATE:[%10s] TL:[%s] M:[%s]\n", newDocument.PubDate, newDocument.Title, possibleMonth)
+					}
 				}
 			} else {
 				// fmt.Printf("No procesing: saw [%s] in [%s] %d\n", string(newDocument.Title[titleLength-6]), newDocument.Title, titleLength)
