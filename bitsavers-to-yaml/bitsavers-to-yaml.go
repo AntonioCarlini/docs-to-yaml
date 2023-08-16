@@ -11,7 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	types "docs-to-yaml/structs"
+	types "docs-to-yaml/internal/structs"
 )
 
 // This program takes the bitsavers IndexByDate.txt file and produces a YAML output that describes each entry.

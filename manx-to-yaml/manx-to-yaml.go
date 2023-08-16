@@ -12,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	types "docs-to-yaml/structs"
+	types "docs-to-yaml/internal/structs"
 )
 
 // This program takes the manx database dump and tries to produce a YAML file

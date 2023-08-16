@@ -19,7 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	types "docs-to-yaml/structs"
+	types "docs-to-yaml/internal/structs"
 
 	"github.com/barasher/go-exiftool"
 	"gopkg.in/yaml.v2"
@@ -27,18 +27,12 @@ import (
 
 type Document = types.Document
 
+type PdfMetadata = types.PdfMetadata
+
 // PathAndVolume is used when parsing the indirect file
 type PathAndVolume struct {
 	Path   string
 	Volume string
-}
-
-// PdfMetdata is used to record a subset of metadata that can be extracted from a PDF file and will be stored in YAML
-type PdfMetadata struct {
-	Creator  string
-	Producer string
-	Format   string
-	Modified string
 }
 
 // Md5Cache records information about the MD5 cache itself.

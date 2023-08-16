@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	types "docs-to-yaml/structs"
+	types "docs-to-yaml/internal/structs"
 
 	"gopkg.in/yaml.v2"
 )
