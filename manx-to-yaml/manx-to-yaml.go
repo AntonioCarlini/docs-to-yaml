@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"docs-to-yaml/internal/document"
 	"encoding/csv"
 	"fmt"
 	"io/ioutil"
@@ -11,8 +12,6 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-
-	types "docs-to-yaml/internal/structs"
 )
 
 // This program takes the manx database dump and tries to produce a YAML file
@@ -48,7 +47,7 @@ import (
 // - cannot simply split on comma ... needed proper CSV parsing
 // - change COPY from single quotes to double quotes (to keep the CSV package happy)
 
-type Document = types.Document
+type Document = document.Document
 
 // The manx SQL 'COPY' table lists each copy of  a document
 type Copy struct {

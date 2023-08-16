@@ -18,6 +18,8 @@ package main
 import (
 	"bufio"
 	"crypto/md5"
+	"docs-to-yaml/internal/document"
+	"docs-to-yaml/internal/pdfmetadata"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -28,15 +30,12 @@ import (
 	"strings"
 	"unicode"
 
-	types "docs-to-yaml/internal/structs"
-
-	"github.com/barasher/go-exiftool"
 	"gopkg.in/yaml.v2"
 )
 
-type Document = types.Document
+type Document = document.Document
 
-type PdfMetadata = types.PdfMetadata
+type PdfMetadata = pdfmetadata.PdfMetadata
 
 // PathAndVolume is used when parsing the indirect file
 type PathAndVolume struct {
@@ -249,7 +248,7 @@ func ParseIndexHtml(filename string, volume string, doMd5 bool, md5Cache *Md5Cac
 
 				pdfMetadata := PdfMetadata{}
 				if readExif {
-					pdfMetadata = ExtractPdfMetadata(candidateFile[0])
+					pdfMetadata = pdfmetadata.ExtractPdfMetadata(candidateFile[0])
 				}
 
 				var newDocument Document
@@ -299,41 +298,6 @@ func BuildCaseInsensitivePathGlob(path string) string {
 		}
 	}
 	return p
-}
-
-// Given a PDF file, this function finds the associated metdata and returns those elements that will be stored in the YAML.
-func ExtractPdfMetadata(pdfFilename string) PdfMetadata {
-	et, err := exiftool.NewExiftool()
-	if err != nil {
-		log.Printf("Error when intializing: %v\n", err)
-	}
-	defer et.Close()
-
-	fileInfos := et.ExtractMetadata(pdfFilename)
-	metadata := PdfMetadata{}
-	for _, fileInfo := range fileInfos {
-		if fileInfo.Err != nil {
-			fmt.Printf("Error concerning %v: %v\n", fileInfo.File, fileInfo.Err)
-			continue
-		}
-
-		for k, v := range fileInfo.Fields {
-			if k == "Creator" {
-				metadata.Creator = v.(string)
-			}
-			if k == "Producer" {
-				metadata.Producer = v.(string)
-			}
-			if k == "PDFVersion" {
-				metadata.Format = strings.TrimRight(fmt.Sprintf("%f", v.(float64)), "0")
-			}
-			if k == "ModifyDate" {
-				metadata.Modified = v.(string)
-			}
-		}
-	}
-
-	return metadata
 }
 
 // Determine the file format. This will be TXT, PDF, RNO etc.

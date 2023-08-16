@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"docs-to-yaml/internal/document"
 	"fmt"
 	"log"
 	"os"
@@ -10,8 +11,6 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-
-	types "docs-to-yaml/internal/structs"
 )
 
 // This program takes the bitsavers IndexByDate.txt file and produces a YAML output that describes each entry.
@@ -40,7 +39,7 @@ import (
 //  o The part number could do with some sanity checks
 //
 
-type Document = types.Document
+type Document = document.Document
 
 func main() {
 

@@ -10,6 +10,8 @@ package main
 
 import (
 	"crypto/md5"
+	"docs-to-yaml/internal/document"
+	"docs-to-yaml/internal/pdfmetadata"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -17,17 +19,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 
-	types "docs-to-yaml/internal/structs"
-
-	"github.com/barasher/go-exiftool"
 	"gopkg.in/yaml.v2"
 )
 
-type Document = types.Document
+type Document = document.Document
 
-type PdfMetadata = types.PdfMetadata
+type PdfMetadata = pdfmetadata.PdfMetadata
 
 // PathAndVolume is used when parsing the indirect file
 type PathAndVolume struct {
@@ -123,7 +121,7 @@ func main() {
 		// TOOD only do this if the format is PDF!
 		if *exifRead {
 			if (doc.PdfCreator == "") || (doc.PdfProducer == "") || (doc.PdfVersion == "") || (doc.PdfModified == "") {
-				pdfMetadata := ExtractPdfMetadata(fullPath)
+				pdfMetadata := pdfmetadata.ExtractPdfMetadata(fullPath)
 
 				doc.PdfCreator = pdfMetadata.Creator
 				doc.PdfProducer = pdfMetadata.Producer
@@ -200,39 +198,4 @@ func CreateLocalDocument(path string) Document {
 	newDocument.Filepath = path
 
 	return newDocument
-}
-
-// Given a PDF file, this function finds the associated metdata and returns those elements that will be stored in the YAML.
-func ExtractPdfMetadata(pdfFilename string) PdfMetadata {
-	et, err := exiftool.NewExiftool()
-	if err != nil {
-		log.Printf("Error when intializing: %v\n", err)
-	}
-	defer et.Close()
-
-	fileInfos := et.ExtractMetadata(pdfFilename)
-	metadata := PdfMetadata{}
-	for _, fileInfo := range fileInfos {
-		if fileInfo.Err != nil {
-			fmt.Printf("Error concerning %v: %v\n", fileInfo.File, fileInfo.Err)
-			continue
-		}
-
-		for k, v := range fileInfo.Fields {
-			if k == "Creator" {
-				metadata.Creator = v.(string)
-			}
-			if k == "Producer" {
-				metadata.Producer = v.(string)
-			}
-			if k == "PDFVersion" {
-				metadata.Format = strings.TrimRight(fmt.Sprintf("%f", v.(float64)), "0")
-			}
-			if k == "ModifyDate" {
-				metadata.Modified = v.(string)
-			}
-		}
-	}
-
-	return metadata
 }

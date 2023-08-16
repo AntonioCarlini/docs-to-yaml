@@ -1,6 +1,7 @@
 package main
 
 import (
+	"docs-to-yaml/internal/document"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	types "docs-to-yaml/internal/structs"
 
 	"gopkg.in/yaml.v2"
 )
@@ -23,7 +22,7 @@ import (
 // ISSUES:
 //
 
-type Document = types.Document
+type Document = document.Document
 
 // Md5Cache records information about the MD5 cache itself.
 type FileSizeCache struct {

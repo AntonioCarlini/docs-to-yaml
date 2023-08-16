@@ -1,4 +1,4 @@
-package types
+package document
 
 // The Document struct is how per-electronic-document data is represented in YAML
 type Document struct {
