@@ -13,6 +13,7 @@ import (
 	"docs-to-yaml/internal/document"
 	"docs-to-yaml/internal/pdfmetadata"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -46,6 +47,8 @@ type Md5Cache struct {
 // Finally outputs the cumulative YAML file.
 func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose reporting")
+	fnfList := flag.Bool("fnf-list", false, "Report file not found")
+	fnfDiscard := flag.Bool("fnf-discard", false, "Report file not found")
 	yamlOutputFilename := flag.String("yaml", "", "filepath of the output file to hold the generated yaml")
 	md5Gen := flag.Bool("md5-sum", false, "Enable generation of MD5 sums")
 	exifRead := flag.Bool("exif", false, "Enable EXIF reading")
@@ -96,7 +99,6 @@ func main() {
 		doc, found := documents[filepath]
 		if !found {
 			doc = CreateLocalDocument(filepath)
-
 		}
 		fullPath := treePrefix + doc.Filepath
 
@@ -112,7 +114,6 @@ func main() {
 				}
 				md5Hash := md5.Sum(fileBytes)
 				md5Checksum := hex.EncodeToString(md5Hash[:])
-				doc = documents[filepath]
 				doc.Md5 = md5Checksum
 			}
 		}
@@ -152,6 +153,22 @@ func main() {
 	}
 
 	fmt.Println("Finished with this many documents: ", len(documents))
+
+	if *fnfList || *fnfDiscard {
+		for k, d := range documents {
+			fullPath := treePrefix + d.Filepath
+			if _, err := os.Stat(fullPath); errors.Is(err, os.ErrNotExist) {
+				if *fnfList {
+					fmt.Println("Non-existent file found in YAML    :", fullPath)
+				}
+				if *fnfDiscard {
+					delete(documents, k)
+					fmt.Println("Non-existent file removed from YAML:", fullPath)
+				}
+			}
+		}
+		fmt.Println("Finally finished with this many documents: ", len(documents))
+	}
 
 	// Write the output YAML file
 	data, err := yaml.Marshal(&documents)
