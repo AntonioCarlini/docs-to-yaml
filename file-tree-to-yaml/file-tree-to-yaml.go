@@ -141,9 +141,11 @@ func main() {
 
 		// A number of further items are still on the TODO list
 		// newDocument.Format = DetermineFileFormat(volumePath) TODO should be handled by creator function
-		// doc.Title = title
-		// doc.PartNum = partNumber
-		// doc.PubDate = date
+		doc.Format, err = document.DetermineDocumentFormat(doc.Filepath)
+		data := document.DetermineDocumentPropertiesFromPath(doc.Filepath, true)
+		doc.Title = data.Title
+		doc.PartNum = data.PartNum
+		doc.PubDate = data.PubDate
 
 		// Update the map entry in case it has changed
 		documents[filepath] = doc
