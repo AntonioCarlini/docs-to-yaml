@@ -7,6 +7,10 @@ This currently covers the collection of computer-related manuals, mostly produce
 
 Takes a copy of IndexByDate.txt that has been downloaded from bitsavers, along with a file that supplies the MD5 sums for many of those files and produces a YAML file that describes the subset of DEC-related information.
 
+### file-tree-to-yaml
+
+Generates a YAML file that describes all files under a specific root. This should help automate producing new archive discs.
+
 ### local-to-yaml
 
 This program examines a specified set of directories that contain copies of CD-R and DVR-R copies or images that contain relevant manuals that I have collected over the years and builds up some YAML files describing the contents.
