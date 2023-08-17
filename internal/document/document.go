@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -59,21 +60,19 @@ func DetermineDocumentFormat(filename string) (string, error) {
 	return "???", errors.New("Unknown file type when trying to determine docuemnt format")
 }
 
-// Attempt to parse the document filename to produce a part number, a title and a publication date.
+// Attempt to parse the document filename to produce a part number, a title, a publication date and fill in the document format.
 // This assumes that the title roughly follows the current bitsavers format of:
 // DEC-PART-NUM_A_title_of_many_parts_Jan00.pdf
 // So everything up to the first underscore is considered a possible part number.
 // Everything after the last underscore (but excluding the filetype) is a potential date.
 // The rest is a title with underscore taking the place of any spaces.
+// Finally the document format is decided based on the filetype.
 
-// TODO
 func DetermineDocumentPropertiesFromPath(path string, verbose bool) Document {
 	var doc Document
 	doc.PartNum = "MADE-UP-DATE"
 	doc.Title = "*** Invented Title ***"
 	doc.PubDate = "1758-11-04"
-	//fmt.Println("doc properties with called with [", path, "] len=", len(path))
-	fmt.Println("****************************************** This function is currently a non-functional placeholder function ******************************************")
 
 	filename := filepath.Base(path)
 	fileType := strings.ToUpper(filepath.Ext(path))
@@ -89,41 +88,37 @@ func DetermineDocumentPropertiesFromPath(path string, verbose bool) Document {
 
 	// The part number is the first part of the filename, up to the first underscore ("_"), if any.
 	// The title is everything apart from the part number. If there is no part number then everything is the title.
-	potentialPartNum, _ /*title*/, partNumFound := strings.Cut(filename, "_")
-	if partNumFound {
-		partNumFound = ValidateDecPartNumber(potentialPartNum)
-	}
-	if partNumFound {
 
-		// If no "_" found, there is no part number and the whole filename is the title
-		// newDocument.PartNum = ""
-		// newDocument.Title = filename
+	// Find everything before the firs underscore and validate it as a DEC part number
+	partNum, title, partNumFound := strings.Cut(filename, "_")
+	if partNumFound {
+		partNumFound = ValidateDecPartNumber(partNum)
+	}
+
+	// If the final decision is that a valid part number has been found, record it in the Document and remove it from the title.
+	// Otherwise the title (so far) is the whole original filename.
+	if partNumFound {
+		title = filename[len(partNum)+1:]
+		doc.PartNum = partNum
 	} else {
-		fmt.Printf("Bad Part #: [%s] in %s\n", potentialPartNum, path)
+		title = filename
+		fmt.Printf("Bad Part #: [%s] in %s\n", partNum, path)
 	}
 
-	// If the title ends with a three letter month abbreviation (the first letter capitalised) and a plausible two digit year, then pull that out as a publication date.
-	var monthNames = map[string]string{"Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04", "May": "05", "Jun": "06", "Jul": "07", "Aug": "08", "Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12"}
-
-	titleLength := len(doc.Title)
-
-	if titleLength > 7 {
-		if string(doc.Title[titleLength-6]) == "_" {
-			possibleMonth := doc.Title[titleLength-5 : titleLength-2]
-			possibleYear := doc.Title[titleLength-2 : titleLength]
-			if monthNumber, ok := monthNames[possibleMonth]; ok {
-				doc.Title = doc.Title[0 : titleLength-6]
-				doc.PubDate = "19" + possibleYear + "-" + monthNumber
-				// fmt.Printf("DATE SEEN:  DATE:[%10s] TL:[%s] %d %s\n", newDocument.PubDate, newDocument.Title, titleLength, possibleMonth)
-			} else {
-				if verbose {
-					fmt.Printf("NO DATE:    DATE:[%10s] TL:[%s] M:[%s]\n", doc.PubDate, doc.Title, possibleMonth)
-				}
-			}
-		} else {
-			// fmt.Printf("No procesing: saw [%s] in [%s] %d\n", string(newDocument.Title[titleLength-6]), newDocument.Title, titleLength)
+	// Look for a possible date. This will always be all the characters between the
+	// last underscore and the end of the string (i.e. before the period of the filetype in the original filename).
+	// If there is no underscore, then there is no date.
+	possibleDateStart := strings.LastIndex(title, "_")
+	if (possibleDateStart >= 0) && (len(title) > (possibleDateStart + 2)) {
+		possibleDate := ValidateDate(title[possibleDateStart+1:])
+		if possibleDate != "" {
+			title = title[0:possibleDateStart]
+			doc.PubDate = possibleDate
 		}
 	}
+
+	// Remove any underscores from the title so far  to leave the final title
+	doc.Title = strings.Replace(title, "_", " ", -1)
 
 	return doc
 }
@@ -163,4 +158,54 @@ func ValidateDecPartNumber(partNumber string) bool {
 
 	// Nothing so far has matched, so assume this is not a DEC part number
 	return false
+}
+
+// Check if the string supplied can be interpreted as a date.
+// Currently only the formats seen in filenames on bitsavers are accepted.
+// The following formats are accepted:
+// YYYY     - four digit year
+// YYYYMM   - four digit year and two digit month (with leading 0 if necessary)
+// mmmYY    - Three letter English month abbreviation and two digit year; 50-99=> 1960-1999, 00-23 2000-2023
+
+func ValidateDate(date string) string {
+	dateLength := len(date)
+	if dateLength < 4 {
+		return ""
+	}
+
+	switch dateLength {
+	case 4:
+		year, err := strconv.Atoi(date)
+		if err != nil {
+			return ""
+		}
+		if (year >= 1960) && (year <= 2023) {
+			return date
+		} else {
+			return ""
+		}
+
+	case 6:
+		year, err := strconv.Atoi(date[0:3])
+		if (err != nil) || (year < 1960) || (year > 2023) {
+			return ""
+		}
+		month, err := strconv.Atoi(date[4:5])
+		if (err != nil) || (month < 1) || (month > 12) {
+			return ""
+		}
+		return date[0:3] + "-" + date[4:5]
+	case 5:
+		// If the title ends with a three letter month abbreviation (the first letter capitalised) and a plausible two digit year, then pull that out as a publication date.
+		var monthNames = map[string]string{"JAN": "01", "FEB": "02", "MAR": "03", "APR": "04", "MAY": "05", "JUN": "06", "JUL": "07", "AUG": "08", "SEP": "09", "OCT": "10", "NOV": "11", "DEC": "12"}
+		possibleMonth := strings.ToUpper(date[0:3])
+		possibleYear := date[3:]
+		if monthNumber, ok := monthNames[possibleMonth]; ok {
+			// TODO make this allow for 2000 onwards!
+			return "19" + possibleYear + "-" + monthNumber
+		} else {
+			return ""
+		}
+	}
+	return ""
 }
