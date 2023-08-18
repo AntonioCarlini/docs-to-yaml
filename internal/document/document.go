@@ -27,7 +27,7 @@ type Document struct {
 }
 
 // Determine the file format. This will be TXT, PDF, RNO etc.
-
+//
 // For now, it can just be the filetype, as long as it is one of
 // a recognised set. If necessary this could be expanded to use the mimetype
 // package.
@@ -121,6 +121,27 @@ func DetermineDocumentPropertiesFromPath(path string, verbose bool) Document {
 	doc.Title = strings.Replace(title, "_", " ", -1)
 
 	return doc
+}
+
+// Construct a key for a given Document.
+// If an MD5 checksum is present, use that.
+// Otherwise use the part number, if it exists.
+// If there is still no key try using the title.
+// As a last resort, use the filepath.
+func BuildKeyFromDocument(doc Document) string {
+	// The best possible key is the MD5 checksum, so if one is present, use that.
+	if doc.Md5 != "" {
+		return doc.Md5
+	}
+
+	// Try, in turn, the part number, title and filepath
+	if doc.PartNum != "" {
+		return doc.PartNum
+	} else if doc.Title != "" {
+		return doc.Title
+	}
+	return doc.Filepath
+
 }
 
 // Checks if the string supplied looks like a known DEC part number format.
