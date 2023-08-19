@@ -61,7 +61,7 @@ func main() {
 	}
 
 	// Start by reading the output yaml file.
-	documents, err := YamlDataInit(*yamlOutputFilename)
+	initialData, err := YamlDataInit(*yamlOutputFilename)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -95,16 +95,58 @@ func main() {
 		log.Fatalf("impossible to walk directories: %s", err)
 	}
 
+	var mapByMd5 map[string]Document = make(map[string]Document)
+	var mapByFilepath map[string]Document = make(map[string]Document)
+
+	for _, v := range initialData {
+		md5 := v.Md5
+		if md5 == "" {
+			md5 = v.Filepath
+		}
+		if _, found := mapByMd5[md5]; found {
+			fmt.Printf("WARNING: non-unique MD5 %s for %s and %s - dropped latter\n", v.Md5, mapByMd5[v.Md5].Filepath, v.Filepath)
+		} else {
+			mapByMd5[md5] = v
+		}
+
+		if _, found := mapByFilepath[v.Filepath]; found {
+			fmt.Printf("WARNING: non-unique filepath %s for %s and %s - dropped latter\n", v.Filepath, mapByMd5[v.Filepath].Filepath, v.Filepath)
+		} else {
+			mapByFilepath[v.Filepath] = v
+		}
+	}
+
+	if len(mapByMd5) != len(mapByFilepath) {
+		log.Fatalf("After all processing, MD5 and Filepath maps are different sizes; %d docs listed by MD5 and %d listed by filepath\n", len(mapByMd5), len(mapByFilepath))
+	}
+
 	for _, filepath := range paths {
-		doc, found := documents[filepath]
+		doc, found := mapByFilepath[filepath]
 		if !found {
 			doc = CreateLocalDocument(filepath)
 		}
+		originalMd5 := doc.Md5
+
+		// Set up properties that are determined by the filepath, but only if they are currently missing
+		data := document.DetermineDocumentPropertiesFromPath(doc.Filepath, true)
+		if doc.Format == "" {
+			doc.Format = data.Format
+		}
+		if doc.Title == "" {
+			doc.Title = data.Title
+		}
+		if doc.PartNum == "" {
+			doc.PartNum = data.PartNum
+		}
+		if doc.PubDate == "" {
+			doc.PubDate = data.PubDate
+		}
+
 		fullPath := treePrefix + doc.Filepath
 
 		// Calculate the MD5 checksum if requested and not already present
 		if *md5Gen {
-			if doc.Md5 == "" {
+			if (doc.Md5 == "") && (doc.Md5 != doc.Filepath) {
 				if *verbose {
 					fmt.Println("Calculating MD5 for ", fullPath)
 				}
@@ -140,38 +182,46 @@ func main() {
 			doc.Size = filestats.Size()
 		}
 
-		// A number of further items are still on the TODO list
-		// newDocument.Format = DetermineFileFormat(volumePath) TODO should be handled by creator function
-		doc.Format, err = document.DetermineDocumentFormat(doc.Filepath)
-		data := document.DetermineDocumentPropertiesFromPath(doc.Filepath, true)
-		doc.Title = data.Title
-		doc.PartNum = data.PartNum
-		doc.PubDate = data.PubDate
-
 		// Update the map entry in case it has changed
-		documents[filepath] = doc
+		mapByFilepath[filepath] = doc
+		// MD5 checksum may have changed: if so, remove the old entry from the map keyed on MD5 checksum
+		if originalMd5 != doc.Md5 {
+			delete(mapByMd5, originalMd5)
+		}
+		mapByMd5[doc.Md5] = doc
 	}
 
-	fmt.Println("Finished with this many documents: ", len(documents))
+	// Ensure that each document is listed
+	fmt.Println("Finished with this many documents: ", len(mapByFilepath))
 
 	if *fnfList || *fnfDiscard {
-		for k, d := range documents {
+		for k, d := range mapByFilepath {
 			fullPath := treePrefix + d.Filepath
+			if d.Filepath == "" && (k != d.Md5) {
+				fullPath = treePrefix + k
+			}
+			fmt.Println("checking ", fullPath)
 			if _, err := os.Stat(fullPath); errors.Is(err, os.ErrNotExist) {
 				if *fnfList {
 					fmt.Println("Non-existent file found in YAML    :", fullPath)
 				}
 				if *fnfDiscard {
-					delete(documents, k)
+					delete(mapByFilepath, k)
+					delete(mapByMd5, d.Md5)
 					fmt.Println("Non-existent file removed from YAML:", fullPath)
 				}
 			}
 		}
-		fmt.Println("Finally finished with this many documents: ", len(documents))
+		fmt.Println("Finally finished with this many documents: ", len(mapByFilepath))
+	}
+
+	// After all the manipualtion, there must be exactly the same number of documents in the MD5 and Filepath maps
+	if len(mapByMd5) != len(mapByFilepath) {
+		log.Fatalf("After all processing, MD5 and Filepath maps are different sizes; %d docs listed by MD5 and %d listed by filepath\n", len(mapByMd5), len(mapByFilepath))
 	}
 
 	// Write the output YAML file
-	data, err := yaml.Marshal(&documents)
+	data, err := yaml.Marshal(&mapByMd5)
 	if err != nil {
 		log.Fatal("Bad YAML data: ", err)
 	}
