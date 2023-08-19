@@ -41,6 +41,7 @@ type PdfMetadata = pdfmetadata.PdfMetadata
 type PathAndVolume struct {
 	Path   string
 	Volume string
+	Root   string
 }
 
 // Md5Cache records information about the MD5 cache itself.
@@ -80,7 +81,7 @@ func main() {
 	filepathsAndVolumes := ParseIndirectFile(*indirectFile)
 
 	for _, item := range filepathsAndVolumes {
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(item.Path, item.Volume, *md5Gen, md5Cache, *exifRead, *verbose)
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(item.Path, item.Volume, item.Root, *md5Gen, md5Cache, *exifRead, *verbose)
 		if *verbose {
 			for i, doc := range documentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -121,8 +122,10 @@ func main() {
 }
 
 // Each line of the indirect file consist of:
-// full-path prefix
-// If full-path starts with a double quote, then it ends with one too.
+// full-path-to-HTML-index prefix [optional-full-path-to-root]
+//
+// If full-path-to-HTML-index starts with a double quote, then it ends with one too.
+// The same would be true of optional-full-path-to-root, but that has not been implemented.
 // Otherwise there is exactly one space between the full-path and the prefix.
 func ParseIndirectFile(indirectFile string) []PathAndVolume {
 
@@ -135,29 +138,29 @@ func ParseIndirectFile(indirectFile string) []PathAndVolume {
 	var result []PathAndVolume
 	lineNumber := 0
 	scanner := bufio.NewScanner(file)
+	re := regexp.MustCompile(`[^\s"]+|"([^"]*)"`)
 	for scanner.Scan() {
 		line := scanner.Text()
 		lineNumber += 1
 		if len(line) == 0 {
 			continue
 		}
-		if line[0:1] == "\"" {
-			re := regexp.MustCompile(`"([^"]+)"\s*(.*)$`)
-			quotedString := re.FindStringSubmatch(line)
-			if quotedString == nil {
-				log.Fatalf("indirect file line %d, cannot parse line with double quote: [%s])\n", lineNumber, line)
-			} else if len(quotedString) < 2 {
-				log.Fatalf("indirect file line %d, missing volume name (after %s)\n", lineNumber, quotedString[0])
-			} else {
-				result = append(result, PathAndVolume{Path: quotedString[1], Volume: quotedString[2]})
-			}
-		} else {
-			portions := strings.Split(line, " ")
-			if len(portions) == 2 {
-				result = append(result, PathAndVolume{Path: portions[0], Volume: portions[1]})
-			} else {
-				log.Fatalf("indirect file line %d, cannot parse line: [%s] (%d portions))\n", lineNumber, line, len(portions))
-			}
+		quotedString := re.FindAllString(line, -1)
+		if quotedString == nil {
+			log.Fatalf("indirect file line %d, cannot parse line: [%s])\n", lineNumber, line)
+		} else if len(quotedString) == 1 {
+			log.Fatalf("indirect file line %d, missing volume name (after %s)\n", lineNumber, quotedString[0])
+		}
+
+		q0 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[0])
+		switch len(quotedString) {
+		case 2:
+			result = append(result, PathAndVolume{Path: q0, Volume: quotedString[1], Root: filepath.Dir(q0)})
+		case 3:
+			q2 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[2])
+			result = append(result, PathAndVolume{Path: q0, Volume: quotedString[1], Root: q2})
+		default:
+			log.Fatalf("indirect file line %d, too many elements: %d\n", lineNumber, len(quotedString))
 		}
 	}
 	return result
@@ -167,7 +170,7 @@ func ParseIndirectFile(indirectFile string) []PathAndVolume {
 // This function parses any such HTML file to produce a list of files that the index HTML links to
 // and the associated part number and title recorded in the index HTML.
 // If required then an MD5 checksum is generated and PDF metadata is extracted and recorded.
-func ParseIndexHtml(filename string, volume string, doMd5 bool, md5Cache *Md5Cache, readExif bool, verbose bool) (map[string]Document, map[string]string) {
+func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5Cache *Md5Cache, readExif bool, verbose bool) (map[string]Document, map[string]string) {
 
 	if verbose {
 		fmt.Println("Processing", filename)
@@ -209,10 +212,12 @@ func ParseIndexHtml(filename string, volume string, doMd5 bool, md5Cache *Md5Cac
 				title := TidyDocumentTitle(match[3])
 				fullFilepath := path + "/" + volumePath
 				absolutePath, err := filepath.Abs(fullFilepath)
+				// fmt.Println("abs=", absolutePath, "root=", root)
+				modifiedVolumePath := absolutePath[len(root):]
 				if err != nil {
 					log.Fatal(err)
 				}
-				// fmt.Println("ffp=[", fullFilepath, "] abs =[", absolutePath, "]")
+				// fmt.Println("path=", path, "ffp=[", fullFilepath, "] abs =[", absolutePath, "]")
 				cifp := BuildCaseInsensitivePathGlob(absolutePath)
 				candidateFile, err := filepath.Glob(cifp)
 				if err != nil {
@@ -262,7 +267,7 @@ func ParseIndexHtml(filename string, volume string, doMd5 bool, md5Cache *Md5Cac
 				newDocument.PdfProducer = pdfMetadata.Producer
 				newDocument.PdfVersion = pdfMetadata.Format
 				newDocument.PdfModified = pdfMetadata.Modified
-				newDocument.Filepath = "file:///" + volume + "/" + volumePath
+				newDocument.Filepath = "file:///" + volume + "/" + modifiedVolumePath
 				// If a duplicate is found, keep the previous entry
 				if _, ok := documentsMap[key]; ok {
 					// If the duplicated entries share the same filepath, then the same file is linked to
@@ -410,4 +415,16 @@ func CalculateMd5Sum(filename string, md5Cache *Md5Cache, verbose bool) (string,
 	md5Cache.Dirty = true
 	fmt.Printf("MD5 Cache: wrote %s for %s\n", md5Checksum, filename)
 	return md5Checksum, nil
+}
+
+// helper function to remove leading and trailing double quotes, if present.
+// Otherwise returns the original string untouched.
+func StripOptionalLeadingAndTrailingDoubleQuotes(candidate string) string {
+	result := candidate
+	if (result[0] == '"') && (result[len(result)-1] == '"') {
+		result = result[1 : len(result)-1]
+		fmt.Printf("removed quotes from: [%s]\n", candidate)
+		fmt.Printf("result is          :  [%s]\n", result)
+	}
+	return result
 }
