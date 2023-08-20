@@ -24,6 +24,8 @@ type Document struct {
 	PdfModified string // PDF data: "Modified"
 	Collection  string // Name of collection this document is found in (e.g. "bitsavers")
 	Filepath    string // relative file path of document in collection
+	Source      string // Document origin
+	Flags       string // "P": part num set by code, "T": title set by code, "D": PubDate set by code
 }
 
 // Determine the file format. This will be TXT, PDF, RNO etc.
@@ -229,4 +231,34 @@ func ValidateDate(date string) string {
 		}
 	}
 	return ""
+}
+
+var knownFlags = "PTD"
+
+// Set a flag in the Document.Flags field.
+// Unrecognised flags are ignored.
+func SetFlags(doc Document, flags string) {
+	for _, c := range flags {
+		// Skip unrecognised any flag
+		if !strings.Contains(knownFlags, string(c)) {
+			continue
+		}
+		if !strings.Contains(doc.Flags, string(c)) {
+			doc.Flags += string(c)
+		}
+	}
+}
+
+// Clear specified flags in the Document.Flags field.
+// Unrecognised flags are ignored.
+func ClearFlags(doc Document, flags string) {
+	for _, c := range flags {
+		// Skip unrecognised any flag
+		if !strings.Contains(knownFlags, string(c)) {
+			continue
+		}
+		if strings.Contains(doc.Flags, string(c)) {
+			strings.ReplaceAll(doc.Flags, string(c), "")
+		}
+	}
 }

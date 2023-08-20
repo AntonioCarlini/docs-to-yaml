@@ -118,6 +118,8 @@ func main() {
 
 	if len(mapByMd5) != len(mapByFilepath) {
 		log.Fatalf("After all processing, MD5 and Filepath maps are different sizes; %d docs listed by MD5 and %d listed by filepath\n", len(mapByMd5), len(mapByFilepath))
+	} else {
+		fmt.Printf("After loading and processing YAML file, %d documents are known.\n", len(mapByFilepath))
 	}
 
 	for _, filepath := range paths {
@@ -134,12 +136,15 @@ func main() {
 		}
 		if doc.Title == "" {
 			doc.Title = data.Title
+			document.SetFlags(doc, "T")
 		}
 		if doc.PartNum == "" {
 			doc.PartNum = data.PartNum
+			document.SetFlags(doc, "P")
 		}
 		if doc.PubDate == "" {
 			doc.PubDate = data.PubDate
+			document.SetFlags(doc, "D")
 		}
 
 		fullPath := treePrefix + doc.Filepath
@@ -207,7 +212,15 @@ func main() {
 				}
 				if *fnfDiscard {
 					delete(mapByFilepath, k)
-					delete(mapByMd5, d.Md5)
+					if md5Entry, found := mapByMd5[d.Md5]; !found {
+						fmt.Println("cannot delete entry from MD5 map (not found): ", fullPath)
+					} else if md5Entry.Filepath == d.Filepath {
+						delete(mapByMd5, d.Md5)
+						fmt.Println("Deleted entry from MD5 map: ", fullPath)
+					} else {
+						fmt.Println("Must not delete entry from MD5 map (diff doc): ", fullPath)
+
+					}
 					fmt.Println("Non-existent file removed from YAML:", fullPath)
 				}
 			}
@@ -217,7 +230,7 @@ func main() {
 
 	// After all the manipualtion, there must be exactly the same number of documents in the MD5 and Filepath maps
 	if len(mapByMd5) != len(mapByFilepath) {
-		log.Fatalf("After all processing, MD5 and Filepath maps are different sizes; %d docs listed by MD5 and %d listed by filepath\n", len(mapByMd5), len(mapByFilepath))
+		log.Fatalf("After all final processing, MD5 and Filepath maps are different sizes; %d docs listed by MD5 and %d listed by filepath\n", len(mapByMd5), len(mapByFilepath))
 	}
 
 	// Write the output YAML file
