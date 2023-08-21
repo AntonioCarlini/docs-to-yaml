@@ -20,6 +20,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v2"
 )
@@ -130,7 +131,7 @@ func main() {
 		originalMd5 := doc.Md5
 
 		// Set up properties that are determined by the filepath, but only if they are currently missing
-		data := document.DetermineDocumentPropertiesFromPath(doc.Filepath, true)
+		data := document.DetermineDocumentPropertiesFromPath(doc.Filepath, *verbose)
 		if doc.Format == "" {
 			doc.Format = data.Format
 		}
@@ -194,6 +195,18 @@ func main() {
 			delete(mapByMd5, originalMd5)
 		}
 		mapByMd5[doc.Md5] = doc
+
+		pathOK, badChar, nonAsciiChar := CheckPathForInadvisableCharacters(doc.Filepath)
+		if !pathOK {
+			fmt.Printf("Reconsider path %s,", doc.Filepath)
+			if badChar != "" {
+				fmt.Printf(" contains [%s]", badChar)
+			}
+			if nonAsciiChar != "" {
+				fmt.Printf(" contains non-ASCII [%s]", nonAsciiChar)
+			}
+			fmt.Println()
+		}
 	}
 
 	// Ensure that each document is listed
@@ -205,7 +218,9 @@ func main() {
 			if d.Filepath == "" && (k != d.Md5) {
 				fullPath = treePrefix + k
 			}
-			fmt.Println("checking ", fullPath)
+			if *verbose {
+				fmt.Println("checking ", fullPath)
+			}
 			if _, err := os.Stat(fullPath); errors.Is(err, os.ErrNotExist) {
 				if *fnfList {
 					fmt.Println("Non-existent file found in YAML    :", fullPath)
@@ -280,4 +295,31 @@ func CreateLocalDocument(path string) Document {
 	newDocument.Filepath = path
 
 	return newDocument
+}
+
+// Look for unfortunate characters in a filepath.
+//
+// Note that the caller should specify the path *within* the collection, as
+// that is all that will appear when the collection is copied elsewhere or
+// written to optical media.
+func CheckPathForInadvisableCharacters(filepath string) (bool, string, string) {
+	charactersToAvoid := "#%&{}\\<>*?!$'\":@`="
+	includedInadvisableCharacters := ""
+	includedNonAsciiCharacters := ""
+	for _, candidate := range filepath {
+		if !isASCII(byte(candidate)) {
+			includedNonAsciiCharacters += string(candidate)
+		} else {
+			if strings.Contains(charactersToAvoid, string(candidate)) {
+				includedInadvisableCharacters += string(candidate)
+			}
+		}
+	}
+
+	return ((includedInadvisableCharacters == "") && (includedNonAsciiCharacters == "")), includedInadvisableCharacters, includedNonAsciiCharacters
+}
+
+func isASCII(character byte) bool {
+	ascii := int(character)
+	return (ascii < 128)
 }

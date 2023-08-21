@@ -22,9 +22,9 @@ type Document struct {
 	PdfProducer string // PDF data: "Producer"
 	PdfVersion  string // PDF data: "Format", this will be, for example, "PDF-1.2"
 	PdfModified string // PDF data: "Modified"
-	Collection  string // Name of collection this document is found in (e.g. "bitsavers")
-	Filepath    string // relative file path of document in collection
-	Source      string // Document origin
+	Collection  string // Name of collection that ostensibly initially supplied the document; "local" indicates locally scanned
+	Filepath    string // Relative file path of document in collection
+	PublicUrl   string // Public repository hosting the document; not necessarily originator of the docuemnt
 	Flags       string // "P": part num set by code, "T": title set by code, "D": PubDate set by code
 }
 
@@ -72,7 +72,7 @@ func DetermineDocumentFormat(filename string) (string, error) {
 
 func DetermineDocumentPropertiesFromPath(path string, verbose bool) Document {
 	var doc Document
-	doc.PartNum = "MADE-UP-DATE"
+	doc.PartNum = "MADE-UP-PN"
 	doc.Title = "*** Invented Title ***"
 	doc.PubDate = "1758-11-04"
 
@@ -104,7 +104,9 @@ func DetermineDocumentPropertiesFromPath(path string, verbose bool) Document {
 		doc.PartNum = partNum
 	} else {
 		title = filename
-		fmt.Printf("Bad Part #: [%s] in %s\n", partNum, path)
+		if verbose {
+			fmt.Printf("Bad Part #: [%s] in %s\n", partNum, path)
+		}
 	}
 
 	// Look for a possible date. This will always be all the characters between the
