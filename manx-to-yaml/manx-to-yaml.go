@@ -5,7 +5,6 @@ import (
 	"docs-to-yaml/internal/document"
 	"encoding/csv"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"strconv"
@@ -316,7 +315,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = ioutil.WriteFile("bin/documents.yaml", data, 0644)
+	err = os.WriteFile("bin/manx-documents.yaml", data, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -326,7 +325,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = ioutil.WriteFile("bin/manx-md5.yaml", manxData, 0644)
+	err = os.WriteFile("bin/manx-md5.yaml", manxData, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
