@@ -97,7 +97,7 @@ func TestBuildKeyFromDocument(t *testing.T) {
 
 func TestValidateDecPartNumber(t *testing.T) {
 	validPartNumbers := []string{"EK-70C0B-TM.002", "EK-258AA-MG-003", "EK-AS800-RM.A01", "DS-0013D-TE", "AA-PCU9A-TE", "EY-0016E-DA-0002", "EY-U657E-SG.0001",
-		"EK-AAAAA-AC"}
+		"EK-AAAAA-AC", "DEC-11-ORUGA-A-D", "DEC-00-HRK05-C-D", "DEC-8I-HR2A-D", "MAINDEC-08-D3BB-D", "EK-11/70-IP-001"}
 
 	for _, pn := range validPartNumbers {
 		if !ValidateDecPartNumber(pn) {
@@ -115,7 +115,7 @@ func TestValidateDecPartNumber(t *testing.T) {
 }
 
 func TestValidateDate(t *testing.T) {
-	validDates := map[string]string{"May91": "1991-05x", "Jun00": "2000-06x", "1960": "1960x", "197912": "1979-12x"}
+	validDates := map[string]string{"May91": "1991-05", "Jun00": "2000-06", "1960": "1960", "197912": "1979-12"}
 
 	for k, v := range validDates {
 		result := ValidateDate(k)
@@ -129,22 +129,22 @@ func TestSetFlags(t *testing.T) {
 	var doc Document
 	doc.Flags = ""
 
-	SetFlags(doc, "?")
+	SetFlags(&doc, "?")
 	if doc.Flags != "" {
 		t.Fatalf(`with doc.Flags = "", document.SetFlags(doc, "?") returned flags: %s but should have been ""`, doc.Flags)
 	}
 
-	SetFlags(doc, "T")
+	SetFlags(&doc, "T")
 	if doc.Flags != "T" {
 		t.Fatalf(`with doc.Flags = "", document.SetFlags(doc, "T") returned flags: %s but should have been T`, doc.Flags)
 	}
 
-	SetFlags(doc, "T")
+	SetFlags(&doc, "T")
 	if doc.Flags != "T" {
 		t.Fatalf(`with doc.Flags = "T", document.SetFlags(doc, "T") returned flags: %s but should have been T`, doc.Flags)
 	}
 
-	SetFlags(doc, "P")
+	SetFlags(&doc, "P")
 	if doc.Flags != "TP" {
 		t.Fatalf(`with doc.Flags = "T", document.SetFlags(doc, "P") returned flags: %s but should have been TP`, doc.Flags)
 	}
@@ -154,23 +154,23 @@ func TestClearFlags(t *testing.T) {
 	var doc Document
 	doc.Flags = "PTD"
 
-	ClearFlags(doc, "?")
+	ClearFlags(&doc, "?")
 	if doc.Flags != "PTD" {
 		t.Fatalf(`with doc.Flags = "PTD", document.ClearFlags(doc, "?") returned flags: %s but should have been "PTD"`, doc.Flags)
 	}
 
-	ClearFlags(doc, "T")
+	ClearFlags(&doc, "T")
 	if doc.Flags != "PD" {
 		t.Fatalf(`with doc.Flags = "PTD", document.ClearFlags(doc, "T") returned flags: %s but should have been PD`, doc.Flags)
 	}
 
-	ClearFlags(doc, "T")
+	ClearFlags(&doc, "T")
 	if doc.Flags != "PD" {
 		t.Fatalf(`with doc.Flags = "PD", document.ClearFlags(doc, "T") returned flags: %s but should have been PD`, doc.Flags)
 	}
 
 	doc.Flags = "PTD"
-	ClearFlags(doc, "PD")
+	ClearFlags(&doc, "PD")
 	if doc.Flags != "T" {
 		t.Fatalf(`with doc.Flags = "PTD", document.ClearFlags(doc, "PD") returned flags: %s but should have been T`, doc.Flags)
 	}

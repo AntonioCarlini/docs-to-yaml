@@ -137,15 +137,15 @@ func main() {
 		}
 		if doc.Title == "" {
 			doc.Title = data.Title
-			document.SetFlags(doc, "T")
+			document.SetFlags(&doc, "T")
 		}
 		if doc.PartNum == "" {
 			doc.PartNum = data.PartNum
-			document.SetFlags(doc, "P")
+			document.SetFlags(&doc, "P")
 		}
 		if doc.PubDate == "" {
 			doc.PubDate = data.PubDate
-			document.SetFlags(doc, "D")
+			document.SetFlags(&doc, "D")
 		}
 
 		fullPath := treePrefix + doc.Filepath

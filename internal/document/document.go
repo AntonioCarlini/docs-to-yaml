@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -157,7 +158,7 @@ func BuildKeyFromDocument(doc Document) string {
 //	K-MN-abcdef-aa-abcd.abc
 func ValidateDecPartNumber(partNumber string) bool {
 	pn := strings.ToUpper(partNumber)
-	match, err := regexp.MatchString(`^[[:alnum:]]{2}-[[:alnum:]]{4,5}(-|\.)[[:alnum:]]{2}((-|.)[[:alnum:]]{2,4})?$`, pn)
+	match, err := regexp.MatchString(`^[[:alnum:]]{2}-[\/[:alnum:]]{4,5}(-|\.)[[:alnum:]]{2}((-|.)[[:alnum:]]{2,4})?$`, pn)
 	if err != nil {
 		log.Fatal("EK-NNNNN-JJ regexp faulty")
 	}
@@ -165,9 +166,17 @@ func ValidateDecPartNumber(partNumber string) bool {
 		return true
 	}
 
-	match, err = regexp.MatchString(`^DEC-11-[[:alnum:]]{5}-[[:alnum:]]-[[:alnum:]]$`, pn)
+	match, err = regexp.MatchString(`^DEC-[[:alnum:]]{2}-[[:alnum:]]{4,5}-[[:alnum:]](-[[:alnum:]])?$`, pn)
 	if err != nil {
 		log.Fatal("DEC-11-AAAAA-B-D regexp faulty")
+	}
+	if match {
+		return true
+	}
+
+	match, err = regexp.MatchString(`^MAINDEC-[[:alnum:]]{2}-[[:alnum:]]{4}-[[:alnum:]]$`, pn)
+	if err != nil {
+		log.Fatal("MAINDEC-08-AAAAA-B-D regexp faulty")
 	}
 	if match {
 		return true
@@ -190,7 +199,7 @@ func ValidateDecPartNumber(partNumber string) bool {
 // The following formats are accepted:
 // YYYY     - four digit year
 // YYYYMM   - four digit year and two digit month (with leading 0 if necessary)
-// mmmYY    - Three letter English month abbreviation and two digit year; 50-99=> 1960-1999, 00-23 2000-2023
+// mmmYY    - Three letter English month abbreviation and two digit year; 50-99=> 1960-1999, 00-25 2000-2025
 
 func ValidateDate(date string) string {
 	dateLength := len(date)
@@ -211,7 +220,7 @@ func ValidateDate(date string) string {
 		}
 
 	case 6:
-		year, err := strconv.Atoi(date[0:3])
+		year, err := strconv.Atoi(date[0:4])
 		if (err != nil) || (year < 1960) || (year > 2023) {
 			return ""
 		}
@@ -219,15 +228,22 @@ func ValidateDate(date string) string {
 		if (err != nil) || (month < 1) || (month > 12) {
 			return ""
 		}
-		return date[0:3] + "-" + date[4:5]
+		return date[0:4] + "-" + date[4:6]
 	case 5:
 		// If the title ends with a three letter month abbreviation (the first letter capitalised) and a plausible two digit year, then pull that out as a publication date.
 		var monthNames = map[string]string{"JAN": "01", "FEB": "02", "MAR": "03", "APR": "04", "MAY": "05", "JUN": "06", "JUL": "07", "AUG": "08", "SEP": "09", "OCT": "10", "NOV": "11", "DEC": "12"}
 		possibleMonth := strings.ToUpper(date[0:3])
 		possibleYear := date[3:]
+		possibleYearInt, err := strconv.Atoi(possibleYear)
+		if err != nil {
+			return ""
+		}
 		if monthNumber, ok := monthNames[possibleMonth]; ok {
-			// TODO make this allow for 2000 onwards!
-			return "19" + possibleYear + "-" + monthNumber
+			if possibleYearInt < 25 {
+				return "20" + possibleYear + "-" + monthNumber
+			} else {
+				return "19" + possibleYear + "-" + monthNumber
+			}
 		} else {
 			return ""
 		}
@@ -239,7 +255,7 @@ var knownFlags = "PTD"
 
 // Set a flag in the Document.Flags field.
 // Unrecognised flags are ignored.
-func SetFlags(doc Document, flags string) {
+func SetFlags(doc *Document, flags string) {
 	for _, c := range flags {
 		// Skip unrecognised any flag
 		if !strings.Contains(knownFlags, string(c)) {
@@ -253,14 +269,24 @@ func SetFlags(doc Document, flags string) {
 
 // Clear specified flags in the Document.Flags field.
 // Unrecognised flags are ignored.
-func ClearFlags(doc Document, flags string) {
+func ClearFlags(doc *Document, flags string) {
+	fmt.Printf("ClearFlags(doc (flags=%s),%s)\n", doc.Flags, flags)
 	for _, c := range flags {
 		// Skip unrecognised any flag
 		if !strings.Contains(knownFlags, string(c)) {
+			fmt.Println("skipping unknown ", string(c))
 			continue
 		}
 		if strings.Contains(doc.Flags, string(c)) {
-			strings.ReplaceAll(doc.Flags, string(c), "")
+			if string(c) == "T" {
+				fmt.Println("Matches a T")
+			} else {
+				fmt.Println("Does not match a T")
+			}
+			fmt.Print("clearing [", string(c), "] (", c, ") from ", doc.Flags, " type=", reflect.TypeOf(doc.Flags))
+			doc.Flags = strings.ReplaceAll(doc.Flags, string(c), "")
+			fmt.Println(" to leave ", doc.Flags)
+			fmt.Println("TEST: ", strings.ReplaceAll("PTD", "T", ""))
 		}
 	}
 }
