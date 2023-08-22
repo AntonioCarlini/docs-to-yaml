@@ -189,6 +189,14 @@ func ValidateDecPartNumber(partNumber string) bool {
 		return true
 	}
 
+	match, err = regexp.MatchString(`^MP(-)?[[:digit:]]{5}(-[[:digit:]]{2})?$`, pn)
+	if err != nil {
+		log.Fatal("MP printset regexp faulty")
+	}
+	if match {
+		return true
+	}
+
 	// Nothing so far has matched, so assume this is not a DEC part number
 	return false
 }

@@ -97,7 +97,7 @@ func TestBuildKeyFromDocument(t *testing.T) {
 
 func TestValidateDecPartNumber(t *testing.T) {
 	validPartNumbers := []string{"EK-70C0B-TM.002", "EK-258AA-MG-003", "EK-AS800-RM.A01", "DS-0013D-TE", "AA-PCU9A-TE", "EY-0016E-DA-0002", "EY-U657E-SG.0001",
-		"EK-AAAAA-AC", "DEC-11-ORUGA-A-D", "DEC-00-HRK05-C-D", "DEC-8I-HR2A-D", "MAINDEC-08-D3BB-D", "EK-11/70-IP-001"}
+		"EK-AAAAA-AC", "DEC-11-ORUGA-A-D", "DEC-00-HRK05-C-D", "DEC-8I-HR2A-D", "MAINDEC-08-D3BB-D", "EK-11/70-IP-001", "MP02538", "MP01957", "MP01968-01", "MP02068-01", "MP-0TU56-00"}
 
 	for _, pn := range validPartNumbers {
 		if !ValidateDecPartNumber(pn) {
