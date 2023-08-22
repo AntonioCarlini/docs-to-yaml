@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -270,23 +269,14 @@ func SetFlags(doc *Document, flags string) {
 // Clear specified flags in the Document.Flags field.
 // Unrecognised flags are ignored.
 func ClearFlags(doc *Document, flags string) {
-	fmt.Printf("ClearFlags(doc (flags=%s),%s)\n", doc.Flags, flags)
 	for _, c := range flags {
 		// Skip unrecognised any flag
 		if !strings.Contains(knownFlags, string(c)) {
-			fmt.Println("skipping unknown ", string(c))
 			continue
 		}
+		// Update the flags
 		if strings.Contains(doc.Flags, string(c)) {
-			if string(c) == "T" {
-				fmt.Println("Matches a T")
-			} else {
-				fmt.Println("Does not match a T")
-			}
-			fmt.Print("clearing [", string(c), "] (", c, ") from ", doc.Flags, " type=", reflect.TypeOf(doc.Flags))
 			doc.Flags = strings.ReplaceAll(doc.Flags, string(c), "")
-			fmt.Println(" to leave ", doc.Flags)
-			fmt.Println("TEST: ", strings.ReplaceAll("PTD", "T", ""))
 		}
 	}
 }
