@@ -8,13 +8,6 @@ import (
 )
 
 func TestParseIndirectFile(t *testing.T) {
-	/*	dirname, err := os.UserHomeDir()
-		if err != nil {
-			log.Fatal(err)
-		}
-		tmpDir := dirname + "/tmp"
-		fmt.Println(tmpDir)*/
-
 	indirectFile, err := os.CreateTemp("", "docs-to-yaml-local-to-yaml*.txt")
 	if err != nil {
 		t.Fatalf("Cannot create temporary file")
@@ -31,6 +24,9 @@ func TestParseIndirectFile(t *testing.T) {
 
 	ok3_indirect := [][]string{{"/path/tree/file01.txt", "0001", "/path/other/root"}, {"\"/path/includes a space/file02.txt\"", "0002"}, {"/path/tree3/file03.txt", "0003"}}
 	err = CheckIndirectFileResponse(fn, ok3_indirect)
+
+	// Clear up by removing the temporary file
+	os.Remove(fn)
 }
 
 func CheckIndirectFileResponse(indirectFilename string, data [][]string) error {
