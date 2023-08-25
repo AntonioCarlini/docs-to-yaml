@@ -78,7 +78,10 @@ func main() {
 	documentsMap := make(map[string]Document)
 	md5Map := make(map[string]string)
 
-	filepathsAndVolumes := ParseIndirectFile(*indirectFile)
+	filepathsAndVolumes, err := ParseIndirectFile(*indirectFile)
+	if err != nil {
+		log.Fatalf("Failed to parse indirect file: %s", err)
+	}
 
 	for _, item := range filepathsAndVolumes {
 		extraDocumentsMap, extraMd5Map := ParseIndexHtml(item.Path, item.Volume, item.Root, *md5Gen, md5Cache, *exifRead, *verbose)
@@ -127,15 +130,14 @@ func main() {
 // If full-path-to-HTML-index starts with a double quote, then it ends with one too.
 // The same would be true of optional-full-path-to-root, but that has not been implemented.
 // Otherwise there is exactly one space between the full-path and the prefix.
-func ParseIndirectFile(indirectFile string) []PathAndVolume {
+func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
+	var result []PathAndVolume
 
 	file, err := os.Open(indirectFile)
 	if err != nil {
-		log.Fatalf("failed to open")
-
+		return result, err
 	}
 
-	var result []PathAndVolume
 	lineNumber := 0
 	scanner := bufio.NewScanner(file)
 	re := regexp.MustCompile(`[^\s"]+|"([^"]*)"`)
@@ -147,9 +149,9 @@ func ParseIndirectFile(indirectFile string) []PathAndVolume {
 		}
 		quotedString := re.FindAllString(line, -1)
 		if quotedString == nil {
-			log.Fatalf("indirect file line %d, cannot parse line: [%s])\n", lineNumber, line)
+			return result, fmt.Errorf("indirect file line %d, cannot parse line: [%s])\n", lineNumber, line)
 		} else if len(quotedString) == 1 {
-			log.Fatalf("indirect file line %d, missing volume name (after %s)\n", lineNumber, quotedString[0])
+			return result, fmt.Errorf("indirect file line %d, missing volume name (after %s)\n", lineNumber, quotedString[0])
 		}
 
 		q0 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[0])
@@ -160,10 +162,10 @@ func ParseIndirectFile(indirectFile string) []PathAndVolume {
 			q2 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[2])
 			result = append(result, PathAndVolume{Path: q0, Volume: quotedString[1], Root: q2})
 		default:
-			log.Fatalf("indirect file line %d, too many elements: %d\n", lineNumber, len(quotedString))
+			return result, fmt.Errorf("indirect file line %d, too many elements: %d\n", lineNumber, len(quotedString))
 		}
 	}
-	return result
+	return result, nil
 }
 
 // The index HTML files written to the DVDs are almost all in one of two (similar) formats.
