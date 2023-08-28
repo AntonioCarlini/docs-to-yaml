@@ -38,7 +38,7 @@ func main() {
 	output_file := "vaxhaven.yaml"
 	fileSizeCacheFilename := "bin/vaxhaven.filesize.cache"
 	fileSizeCacheCreate := true
-	verbose := true
+	verbose := false
 	fileSizeCache, err := FileSizeCacheInit(fileSizeCacheFilename, fileSizeCacheCreate)
 	if err != nil {
 		fmt.Printf("Problem initialising MD5 cache: %+v\n", err)
@@ -194,7 +194,7 @@ func ConvertVaxHavenDate(date string) string {
 	return result
 }
 
-// Prepares the MD% cache for use.
+// Prepares the File Size cache for use.
 // If no MD5 cache file has been specified, create it if allowed.
 // Load YAML data from the cache file (if any).
 //
@@ -238,7 +238,7 @@ func FileSizeCacheInit(fileSizeCacheFilename string, createIfMissing bool) (*Fil
 	return fileSizeCache, nil
 }
 
-// Return the fileSize sum for the specified file.
+// Return the fileSize for the specified file.
 // Start by looking up the filename (path) in the cache and return a pre-computed fileSize sum if found.
 // Otherwise, compute the fileSize sum, add the entry to the cache, mark the cache as dirty and return the computed fileSize sum.
 var tempCount int = 0
