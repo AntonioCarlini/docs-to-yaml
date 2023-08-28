@@ -1,6 +1,6 @@
 module docs-to-yaml
 
-go 1.13
+go 1.18
 
 require (
 	github.com/barasher/go-exiftool v1.7.0 // indirect
