@@ -35,7 +35,7 @@ type Document struct {
 // package.
 // Note that "HTM" will be returned as "HTML": both types exist in the collection but it makes no sense to allow both!
 // Similarly "JPG" will be returned as "JPEG".
-var KnownFileTypes = [...]string{"PDF", "TXT", "MEM", "RNO", "PS", "HTM", "HTML", "ZIP", "LN3", "TIF", "JPG", "JPEG"}
+var KnownFileTypes = [...]string{"PDF", "TXT", "MEM", "RNO", "PS", "HTM", "HTML", "ZIP", "LN3", "TIF", "JPG", "JPEG", "PNG"}
 
 // Sometimes the same file structure may be indicated by multiple filetypes, for
 // example HTML files may be ".HTM" or ".HTML", the JPEG file format might be ".JPEG" or ".JPG"
