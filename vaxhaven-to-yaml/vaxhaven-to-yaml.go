@@ -17,11 +17,7 @@ import (
 
 // This program takes the a subset of VaxHaven documentation index pages and the set of known VaxHaven documents
 // and updates the latter with new information from the former.
-
-// Operation
-
-// ISSUES:
-//
+// As a side effect the File Size Store may be updated with new values.
 
 type Document = document.Document
 
@@ -31,7 +27,6 @@ var vaxhaven_prefix = "http://www.vaxhaven.com"
 
 func main() {
 
-	// TODO vaxhaven_yaml := "bin/vaxhaven.yaml"
 	vaxhaven_data := "data/VaxHaven.txt"
 	output_file := "vaxhaven.yaml"
 	fileSizeStoreFilename := "bin/filesize.store"
@@ -64,12 +59,9 @@ func main() {
 
 }
 
-// Read the bitsavers IndexByDate.txt file and build a set of paths under DEC-related diectories
-// that correspond to files with acceptable file types.
-// This is so that files that are unlikely to be documents can be filtered out,
-// for example file types such as JPG, BIN and so on are not likely to be
-// worth recording in a list of documents.
-
+// This function parses the VaxHaven HTML that indexes the documents and produces a set of
+// corresponding YAML data. The input HTML should be a concatenation of the individual VaxHaven
+// documentation index pages.
 func ParseNewData(filename string, fileSizeStore *Store, verbose bool) map[string]Document {
 
 	// Open the bitsavers index file, complaining loudly on failure
@@ -112,7 +104,7 @@ func ParseNewData(filename string, fileSizeStore *Store, verbose bool) map[strin
 			docDate = data[0][4]
 		}
 		// fmt.Println("data size = ", len(data), " => ", len(data[0]), "=>", data[0][1], "=> ", data[0][2], " => ", data[0][3], data[0][4])
-		document := CreateVaxHavenDocument(data[0][1])
+		document := CreateVaxHavenDocument(vaxhaven_prefix + data[0][1])
 		document.PartNum = data[0][2]
 		document.Title = data[0][3]
 		if len(data[0]) >= 4 {
@@ -140,7 +132,7 @@ func ParseNewData(filename string, fileSizeStore *Store, verbose bool) map[strin
 	return documentsMap
 }
 
-// This function function creates a Document struct with some default values set
+// This function function creates a Document struct with some default values set.
 func CreateVaxHavenDocument(path string) Document {
 	var newDocument Document
 	newDocument.Md5 = ""
@@ -205,7 +197,7 @@ func CalculatefileSize(filename string, fileSizeStore *Store, verbose bool) (int
 
 	// The filename (path) is not in the store.
 	// Ask for the remote file size
-	url := vaxhaven_prefix + filename
+	url := filename
 	resp, err := http.Head(url)
 	if err != nil {
 		fmt.Println(err)
