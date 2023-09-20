@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"docs-to-yaml/internal/document"
+	"docs-to-yaml/internal/persistentstore"
 	"fmt"
 	"log"
 	"os"
@@ -41,6 +42,8 @@ import (
 
 type Document = document.Document
 
+var bitsavers_prefix = "http://bitsavers.org/pdf/"
+
 func main() {
 
 	var docs []string
@@ -49,6 +52,16 @@ func main() {
 	bitsavers_md5_filename := "data/site.bitsavers.2021-10-01.md5"
 	output_file := "bitsavers.yaml"
 	verbose := false
+	md5CacheFilename := "bin/md5.store"
+	md5CacheCreate := false
+
+	md5StoreInstantiation := persistentstore.Store[string, string]{}
+	md5Store, err := md5StoreInstantiation.Init(md5CacheFilename, md5CacheCreate, verbose)
+	if err != nil {
+		fmt.Printf("Problem initialising MD5 Store: %+v\n", err)
+	} else if verbose {
+		fmt.Println("Size of new MD5 store: ", len(md5Store.Data))
+	}
 
 	docs = FindAcceptablePaths(bitsavers_index_filename)
 
@@ -58,7 +71,7 @@ func main() {
 	// If no part number is present, use the title
 	// Look for duplicate (non-empty) MD5 values
 
-	documentsMap := MakeDocumentsFromPaths(bitsavers_md5_filename, docs, verbose)
+	documentsMap := MakeDocumentsFromPaths(bitsavers_md5_filename, docs, md5Store, verbose)
 
 	// Construct the YAML data and write it out to a file
 	data, err := yaml.Marshal(&documentsMap)
@@ -190,7 +203,7 @@ func CreateBitsaversDocument(path string) Document {
 	newDocument.PdfModified = ""
 	newDocument.Collection = "bitsavers"
 	newDocument.Size = 0
-	newDocument.Filepath = path
+	newDocument.Filepath = bitsavers_prefix + path
 
 	return newDocument
 }
@@ -199,7 +212,7 @@ func CreateBitsaversDocument(path string) Document {
 // analyses each path and turns it into a Document struct.
 //
 // If the file path appears in the available MD5 data file, then that MD5 is used in the Document.
-func MakeDocumentsFromPaths(md5File string, documentPaths []string, verbose bool) map[string]Document {
+func MakeDocumentsFromPaths(md5File string, documentPaths []string, md5Store *persistentstore.Store[string, string], verbose bool) map[string]Document {
 	documentsMap := make(map[string]Document)
 	name_to_md5 := load_manx_md5_data(md5File)
 	for _, path := range documentPaths {
@@ -251,11 +264,27 @@ func MakeDocumentsFromPaths(md5File string, documentPaths []string, verbose bool
 			}
 		}
 
+		lookup_key := bitsavers_prefix + path
+		md5_store_found := false
+		md5_store_checksum := ""
+		if md5, found := md5Store.Lookup(lookup_key); found {
+			if verbose {
+				fmt.Printf("MD5 Store: Found %s for %s\n", md5, filename)
+			}
+			md5_store_checksum = md5
+			md5_store_found = true
+		}
+
 		key := "bitsavers@" + path
 		if val, ok := name_to_md5[path]; ok {
 			newDocument.Md5 = val
 			key = val
 			newDocument.Md5 = val
+			if !md5_store_found {
+				fmt.Printf("Found in old store but not new: %s\n", path)
+			} else if md5_store_checksum != val {
+				fmt.Printf("Old and new store checksums differ for %s (old=%s, new=%s)\n", path, val, md5_store_checksum)
+			}
 		} else {
 			newDocument.Md5 = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 			if part_num_found {
@@ -264,6 +293,9 @@ func MakeDocumentsFromPaths(md5File string, documentPaths []string, verbose bool
 				newDocument.Md5 = "TITLE: " + newDocument.Title
 			}
 			fmt.Println("entry without MD5:    ", path)
+			if md5_store_found {
+				fmt.Printf("Found in new store but not old: %s\n", path)
+			}
 		}
 
 		documentsMap[key] = newDocument
