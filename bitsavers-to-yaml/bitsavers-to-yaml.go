@@ -156,30 +156,6 @@ func FindAcceptablePaths(filename string) []string {
 	return docs
 }
 
-// Given a file of MD5 information in the form:
-//
-//	b621e334336d418725d3fab532fb12dd  dec/fieldService/dec-o-log/LP02.pdf
-//
-// process it to produce a map of filepath -> MD5
-func load_manx_md5_data(md5_filename string) map[string]string {
-	file, err := os.Open(md5_filename)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
-
-	name_to_md5 := make(map[string]string)
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		parts := strings.Fields(scanner.Text())
-		md5 := parts[0]
-		path := parts[1]
-		name_to_md5[path] = md5
-	}
-	return name_to_md5
-}
-
 // This function checks if a slice contains a specified string.
 // Go 1.21 provides this functionality, but this code is being developed under Go 1.20.
 func contains(s []string, candidate string) bool {
@@ -214,7 +190,6 @@ func CreateBitsaversDocument(path string) Document {
 // If the file path appears in the available MD5 data file, then that MD5 is used in the Document.
 func MakeDocumentsFromPaths(md5File string, documentPaths []string, md5Store *persistentstore.Store[string, string], verbose bool) map[string]Document {
 	documentsMap := make(map[string]Document)
-	name_to_md5 := load_manx_md5_data(md5File)
 	for _, path := range documentPaths {
 		if strings.HasPrefix(path, "dec/pdp11/microfiche/Diagnostic_Program_Listings/") || strings.HasPrefix(path, "dec/vax/microfiche/vms-source-listings/") {
 			continue
@@ -276,15 +251,10 @@ func MakeDocumentsFromPaths(md5File string, documentPaths []string, md5Store *pe
 		}
 
 		key := "bitsavers@" + path
-		if val, ok := name_to_md5[path]; ok {
-			newDocument.Md5 = val
-			key = val
-			newDocument.Md5 = val
-			if !md5_store_found {
-				fmt.Printf("Found in old store but not new: %s\n", path)
-			} else if md5_store_checksum != val {
-				fmt.Printf("Old and new store checksums differ for %s (old=%s, new=%s)\n", path, val, md5_store_checksum)
-			}
+		if md5_store_found {
+			newDocument.Md5 = md5_store_checksum
+			key = md5_store_checksum
+			newDocument.Md5 = md5_store_checksum
 		} else {
 			newDocument.Md5 = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 			if part_num_found {
