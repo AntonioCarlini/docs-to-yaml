@@ -135,7 +135,7 @@ def main(csv_file, directory):
         if docs[k].source == "Section":
             last_section_seen = docs[k].title
             print('<tr> <td colspan=4> &nbsp; </td> </tr>')
-            print(f"<tr align=left> <font color=\"800000\"> <th colspan=3 bgcolor=\"d2b48c\">")
+            print(f"<tr align=left bgcolor=\"d2b48c\"> <font color=\"800000\"> <th colspan=3>")
             print(f"<a id=\"{last_section_seen}\" href=\"{docs[k].pdf_url}\"> {docs[k].title} </a> </th>")
             print(f"<th> (SOC {docs[k].date}) </th>")
             print('</tr>')
@@ -155,7 +155,7 @@ def main(csv_file, directory):
                 print(f"  <td> PDF missing)")
             if docs[k].doc_file != "":
                 print(f"  <td> <a href=\"{docs[k].doc_file}\"> <img src=\"DOC.gif\" alt=\"DOC icon\" style=\"width:42px;height:42px;\"> </a>")
-                print(f"       <a href=\"{docs[k].pdf_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
+                print(f"       <a href=\"{docs[k].doc_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
             else:
                 print(f"  <td> DOC missing)")
             print(f"  <td> {docs[k].date}")
