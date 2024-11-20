@@ -104,20 +104,16 @@ def main(csv_file, directory):
         if docs[k].doc_url == "":
             print(f"Missing DOC url  for {docs[k].title}")
 
-#    print("all docs")
-#    for k in docs:
-#        print(f"{k} => PDF: {docs[k].pdf_file} DOC: {docs[k].doc_file}")
-
-
     print('<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">')
     print('<html>')
     print('<head>')
     print('<title> DEC Online Systems and Options Catalogue </title>')
     print('<style type="text/css">')
-    print('table, td {border:1px solid #000; margin:10px}')
     print('tr td:nth-child(1) { padding-right: 7pt; padding-left: 3pt; }')
     print('tr td:nth-child(3) { padding-right: 3pt; padding-left: 17pt; }')
     print('tr td:nth-child(4) { padding-right: 3pt; padding-left: 17pt; }')
+    print('table tr:nth-child(odd)  td{ background-color: #ffffff; }')
+    print('table tr:nth-child(even) td{ background-color: #d1f2eb; }')
     print('.container { display: flex; justify-content: space-between; }')
     print('</style>')
     print('</head>')
@@ -128,34 +124,40 @@ def main(csv_file, directory):
     print('<p><hr><p>')
     print('')
     print('<table border=0>')
-    print('<tr> <td> &nbsp; <td> &nbsp; </tr>')
     print('')
     last_section_seen = ""
     for k in docs:
         if docs[k].source == "Section":
             last_section_seen = docs[k].title
-            print('<tr> <td colspan=4> &nbsp; </td> </tr>')
             print(f"<tr align=left bgcolor=\"d2b48c\"> <font color=\"800000\"> <th colspan=3>")
             print(f"<a id=\"{last_section_seen}\" href=\"{docs[k].pdf_url}\"> {docs[k].title} </a> </th>")
             print(f"<th> (SOC {docs[k].date}) </th>")
+            print('<tr style="display:none;">')
             print('</tr>')
-            print('<tr> <td colspan=4> &nbsp; </td> </tr>')
         elif docs[k].source == "Subsection":
-            print('<tr> <td colspan=4> &nbsp; </td> </tr>')
             print(f"<tr align=left> <th colspan=4 bgcolor=\"f1c40f\"> <a id=\"{docs[k].title}\">")
             print(f"<font color=\"800000\"> {last_section_seen}: {docs[k].title} </a> </tr>")
-            print('<tr> <td colspan=4> &nbsp; </td> </tr>')
+            print('<tr style="display:none;">')
         else:
             print(f"<tr valign=top>")
             print(f"  <td> {docs[k].title}")
             if docs[k].pdf_file != "":
-                print(f"  <td> <a href=\"{docs[k].pdf_file}\"> <img src=\"PDF.gif\" alt=\"PDF icon\" style=\"width:42px;height:42px;\"> </a>")
-                print(f"       <a href=\"{docs[k].pdf_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
+                if os.path.isfile(docs[k].pdf_file):
+                    print(f"  <td> <a href=\"{docs[k].pdf_file}\"> <img src=\"PDF.gif\" alt=\"PDF icon\" style=\"width:42px;height:42px;\"> </a>")
+                    print(f"       <a href=\"{docs[k].pdf_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
+                else:
+                    print(f"  <td> <a href=\"{docs[k].pdf_file}\"> <img src=\"PDF-missing.gif\" alt=\"PDF icon\" style=\"width:42px;height:42px;\"> </a>")
+                    print(f"       <a href=\"{docs[k].pdf_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
             else:
                 print(f"  <td> PDF missing)")
             if docs[k].doc_file != "":
-                print(f"  <td> <a href=\"{docs[k].doc_file}\"> <img src=\"DOC.gif\" alt=\"DOC icon\" style=\"width:42px;height:42px;\"> </a>")
-                print(f"       <a href=\"{docs[k].doc_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
+                if os.path.isfile(docs[k].doc_file):
+                    print(f"  <td> <a href=\"{docs[k].doc_file}\"> <img src=\"DOC.gif\" alt=\"DOC icon\" style=\"width:42px;height:42px;\"> </a>")
+                    print(f"       <a href=\"{docs[k].doc_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
+                else:
+                    print(f"  <td> <a href=\"{docs[k].doc_file}\"> <img src=\"DOC-missing.gif\" alt=\"DOC icon\" style=\"width:42px;height:42px;\"> </a>")
+                    print(f"       <a href=\"{docs[k].doc_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
+
             else:
                 print(f"  <td> DOC missing)")
             print(f"  <td> {docs[k].date}")
