@@ -100,17 +100,32 @@ The fields in a _Section Record_ have these meanings:
 |----------|----------------------|
 |       1  | _ Record type_       |
 |       2  | _Section title_      |
-|       3  | _Local file path_    |
+|       3  | ignored              |
 |       4  | _Original URL_       |
 |       5  | _Document date_      |
-|       6  | _Part number_        |
-|       7  | _Options_            |
+|       6  | ignored              |
+|       7  | ignored              |
 
 * _Record Type_ will always be "Section"
 * _Section title_ is the text that describes this section
-* _Local file path_ is blank (and ignored if present)
 * _Original URL_ if not blank, is the full URL of a web page that represents this section
 * _Document date_ is the date the section was published; this will usually only be used if the section is described by an online document
-* _Part number_ is blank (and ignored if present)
-* _Options_ is blank (and ignored if present)
+
+
+### Subection Record
+
+The fields in a _Subection Record_ have these meanings:
+
+| Field #  | Contents             |
+|----------|----------------------|
+|       1  | _ Record type_       |
+|       2  | _Subsection title_   |
+|       3  | ignored              |
+|       4  | ignored              |
+|       5  | ignored              |
+|       6  | ignored              |
+|       7  | ignored              |
+
+* _Record Type_ will always be "Section"
+* _Section title_ is the text that describes this section
 
