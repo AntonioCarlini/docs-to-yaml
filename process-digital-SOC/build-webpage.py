@@ -8,9 +8,12 @@
 
 import csv
 import os
+import re
 import sys
+from datetime import datetime
 from urllib.parse import urlparse
 
+# Pulls out the final filename-like part in a URL
 def extract_last_path_element(url):
     # Parse the URL and get the path
     parsed_url = urlparse(url)
@@ -19,6 +22,28 @@ def extract_last_path_element(url):
     if lpe[-1] == '"':
         lpe = lpe[:-1]
     return lpe
+
+# Given a string of the form "optA='text string 1' optB='text string 2' etc" this should
+# pull out the specified options.
+# TODO
+# Quite limited and relatively untested: known to work for the one CSV file that it currently needs to parse!
+def parse_options(input_string, options):
+    # Create a regex pattern for the specified options
+    pattern = r'({})=\'([^\']*)\''.format('|'.join(options))
+    # Find all matches in the input string
+    matches = re.findall(pattern, input_string)
+    
+    # Create a dictionary to hold the extracted options
+    extracted_options = {}
+    
+    # Map the options to their corresponding values
+    for option in options:
+        extracted_options[option] = None  # Initialize with None
+        for match in matches:
+            if option == match[0]:
+                extracted_options[option] = match[1]
+
+    return extracted_options
 
 # source-file, title, url, date, pagecount
 # for each entry, use the title as an index into a dictionary to find a matching object, create one if necessary
@@ -34,9 +59,18 @@ class Document:
       self.pdf_url = ""
       self.doc_url = ""
       self.source = source
-      self.date = date
+      self.date = convert_date_to_text(date)
       self.page_count = pages
-      
+
+
+
+def convert_date_to_text(date_str):
+    # Parse the date string into a datetime object
+    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+    # Format the date into the desired textual representation
+    result = date_obj.strftime('%d %B %Y')
+    return result
+
 def main(csv_file, directory):
     if not os.path.isdir(directory):
         print(f"The specified directory '{directory}' does not exist.")
@@ -46,21 +80,25 @@ def main(csv_file, directory):
     
     with open(csv_file, mode='r') as file:
         reader = csv.reader(file)
-        
+        option_types = ['containing-page', 'page-count']
         for row in reader:
-            if len(row) < 4:
+            if len(row) < 7:
+                print(f"Skipping short line:[{row}]")
                 continue  # Skip rows that don't have enough columns
-            if row[0] == "PageSourceFile":
+            if row[0] == "Record":
                 continue  # Skip the first row
-            
-            url = row[2]  # Third entry is the URL
-            file_name = extract_last_path_element(url)
-            source = row[0]
+
+            record_type = row[0]
             title = row[1]
-            date = row[3]
-            pages = row[4]
-            
-            if (source == "Section") or (source == "Subsection"):
+            file_name = row[2] # extract_last_path_element(url)
+            url = row[3]  # Third entry is the URL
+            date = row[4]
+            part_number = row[5]
+            options = parse_options(row[6], option_types)
+            source = options["containing-page"]
+            pages = options["page-count"]
+
+            if (record_type == "Section") or (record_type == "Subsection"):
                 heading = True
                 dict_key = title + url
             else:
@@ -73,9 +111,10 @@ def main(csv_file, directory):
                 docs[dict_key] = element
 
             docs[dict_key].source = source
-            docs[dict_key].date = date
+            docs[dict_key].date = convert_date_to_text(date)
             docs[dict_key].page_count = pages
             if heading:
+                docs[dict_key].source = record_type
                 docs[dict_key].pdf_url = url
                 docs[dict_key].doc_url = url
                 continue
