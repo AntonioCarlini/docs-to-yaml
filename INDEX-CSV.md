@@ -72,7 +72,7 @@ The fields in a _Version Record_ have these meanings:
 
 ### Document Record
 
-The fields in a Docuemnt record have these meanings:
+The fields in a Document record have these meanings:
 
 | Field #  | Contents             |
 |----------|----------------------|
@@ -84,7 +84,7 @@ The fields in a Docuemnt record have these meanings:
 |       6  | _Part number_        |
 |       7  | _Options_            |
 
-* _Record Type_ will always be "Doc" for a docuemnt
+* _Record Type_ will always be "Doc" for a document
 * _Document title_ is the official full title of the document
 * _Local file path_ is the relative path to the document in the local file system, relative to the index.csv file
 * _Original URL_ is the full URL from which the document was obtained
