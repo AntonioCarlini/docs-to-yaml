@@ -1,11 +1,15 @@
-# TODO
-# note missing local files
-# allow for checking of IA urls ...  if available on web but not local, then complain loudly
-# if all four missing, then not as a comment in the HTML
-# Add "scrolling" line or table rows?
-# right justofy date and make field wider
-# make title field wider too
-
+#
+# This script takes an index.csv file and produces a web page for the bundle of Online Digital SOC documents found on the Internet Archive.
+# 
+# Invoked with:
+#    build-webpage.py <csv_file> <data-directory> [<images-directory>]
+#
+# csv-file is the path to the CSV file
+# data-directory is the path to the root of the tree where the documents reside
+# images-directory is the path to where the supporting icons reside and is generally going to be somewhere in the data-directory tree
+#
+# Note that the CSV file will usually contain file paths relative to the data-directory.
+#
 import csv
 import os
 import re
@@ -71,7 +75,7 @@ def convert_date_to_text(date_str):
     result = date_obj.strftime('%d %B %Y')
     return result
 
-def main(csv_file, directory):
+def main(csv_file, directory, images_path):
     if not os.path.isdir(directory):
         print(f"The specified directory '{directory}' does not exist.")
         return
@@ -179,20 +183,20 @@ def main(csv_file, directory):
             print(f"  <td> {docs[k].title}")
             if docs[k].pdf_file != "":
                 if os.path.isfile(docs[k].pdf_file):
-                    print(f"  <td> <a href=\"{docs[k].pdf_file}\"> <img src=\"PDF.gif\" alt=\"PDF icon\" style=\"width:42px;height:42px;\"> </a>")
-                    print(f"       <a href=\"{docs[k].pdf_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
+                    print(f"  <td> <a href=\"{docs[k].pdf_file}\"> <img src=\"{images_path}PDF.gif\" alt=\"PDF icon\" style=\"width:42px;height:42px;\"> </a>")
+                    print(f"       <a href=\"{docs[k].pdf_url}\">  <img src=\"{images_path}IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
                 else:
-                    print(f"  <td> <a href=\"{docs[k].pdf_file}\"> <img src=\"PDF-missing.gif\" alt=\"PDF icon\" style=\"width:42px;height:42px;\"> </a>")
-                    print(f"       <a href=\"{docs[k].pdf_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
+                    print(f"  <td> <a href=\"{docs[k].pdf_file}\"> <img src=\"{images_path}PDF-missing.gif\" alt=\"PDF icon\" style=\"width:42px;height:42px;\"> </a>")
+                    print(f"       <a href=\"{docs[k].pdf_url}\">  <img src=\"{images_path}IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
             else:
                 print(f"  <td> (PDF missing)")
             if docs[k].doc_file != "":
                 if os.path.isfile(docs[k].doc_file):
-                    print(f"  <td> <a href=\"{docs[k].doc_file}\"> <img src=\"DOC.gif\" alt=\"DOC icon\" style=\"width:42px;height:42px;\"> </a>")
-                    print(f"       <a href=\"{docs[k].doc_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
+                    print(f"  <td> <a href=\"{docs[k].doc_file}\"> <img src=\"{images_path}DOC.gif\" alt=\"DOC icon\" style=\"width:42px;height:42px;\"> </a>")
+                    print(f"       <a href=\"{docs[k].doc_url}\">  <img src=\"{images_path}IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
                 else:
-                    print(f"  <td> <a href=\"{docs[k].doc_file}\"> <img src=\"DOC-missing.gif\" alt=\"DOC icon\" style=\"width:42px;height:42px;\"> </a>")
-                    print(f"       <a href=\"{docs[k].doc_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
+                    print(f"  <td> <a href=\"{docs[k].doc_file}\"> <img src=\"{images_path}DOC-missing.gif\" alt=\"DOC icon\" style=\"width:42px;height:42px;\"> </a>")
+                    print(f"       <a href=\"{docs[k].doc_url}\">  <img src=\"{images_path}IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
 
             else:
                 print(f"  <td> (DOC missing)")
@@ -203,10 +207,19 @@ def main(csv_file, directory):
     print('</html>')
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python script.py <csv_file> <directory>")
+    if (len(sys.argv) < 3) or (len(sys.argv) > 4):
+        print("Usage: build-webpage.py <csv_file> <data-directory> [<images-directory>]")
         sys.exit(1)
     
-    csv_file_path = sys.argv[2]
-    dir_path = sys.argv[1]
-    main(csv_file_path, dir_path)
+    csv_file_path = sys.argv[1]
+    dir_path = sys.argv[2]
+    if not dir_path.endswith('/'):
+        dir_path += '/' # Add a slash if it's not already present
+    if len(sys.argv) == 4:
+      images_path = sys.argv[3]
+      if not images_path.endswith('/'):
+          images_path += '/' # Add a slash if it's not already present
+    else:
+        images_path = dir_path
+
+    main(csv_file_path, dir_path, images_path)
