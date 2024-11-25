@@ -134,14 +134,11 @@ def main(csv_file, directory):
     for k in docs:
         if (docs[k].source == "Section") or (docs[k].source == "Subsection"):
             continue
-        if docs[k].pdf_file == "":
-            print(f"Missing PDF file for {docs[k].title} ({docs[k].source})")
-        if docs[k].pdf_url == "":
-            print(f"Missing PDF url  for {docs[k].title}")
-        if docs[k].doc_file == "":
-            print(f"Missing DOC file for {docs[k].title}")
-        if docs[k].doc_url == "":
-            print(f"Missing DOC url  for {docs[k].title}")
+        # Complain if both PDF and DOC are missing
+        if (docs[k].pdf_file == "") and (docs[k].doc_file == ""):
+            print(f"Missing files for {docs[k].title} ({docs[k].source})")
+        if (docs[k].pdf_url == "") and (docs[k].doc_url == ""):
+            print(f"Missing urls for {docs[k].title}")
 
     print('<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">')
     print('<html>')
@@ -188,7 +185,7 @@ def main(csv_file, directory):
                     print(f"  <td> <a href=\"{docs[k].pdf_file}\"> <img src=\"PDF-missing.gif\" alt=\"PDF icon\" style=\"width:42px;height:42px;\"> </a>")
                     print(f"       <a href=\"{docs[k].pdf_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
             else:
-                print(f"  <td> PDF missing)")
+                print(f"  <td> (PDF missing)")
             if docs[k].doc_file != "":
                 if os.path.isfile(docs[k].doc_file):
                     print(f"  <td> <a href=\"{docs[k].doc_file}\"> <img src=\"DOC.gif\" alt=\"DOC icon\" style=\"width:42px;height:42px;\"> </a>")
@@ -198,7 +195,7 @@ def main(csv_file, directory):
                     print(f"       <a href=\"{docs[k].doc_url}\">  <img src=\"IA.gif\"  alt=\"IA icon\"  style=\"width:42px;height:42px;\"> </a>")
 
             else:
-                print(f"  <td> DOC missing)")
+                print(f"  <td> (DOC missing)")
             print(f"  <td> {docs[k].date}")
             print(f"  </td> </tr>")
     print('</table>')
