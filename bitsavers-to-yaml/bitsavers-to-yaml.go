@@ -105,7 +105,7 @@ func FindAcceptablePaths(filename string) []string {
 
 	// The index file has lines of the form:
 	//      2021-09-24 22:05:17 dg/software/diag/085-000099-00_cs30-dtos-rev-00-00-update-00.pdf
-	// the first field is a date is ISO format and the second field is a time
+	// the first field is a date in ISO format and the second field is a time
 	// the third field is a relative file path.
 	// The first component in that path represents a manufacturer. Only a few manufacturers
 	// (listed in dec_prefixes) are of interest here.
