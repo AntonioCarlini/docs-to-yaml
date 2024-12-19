@@ -20,11 +20,32 @@ This currently covers the collection of computer-related manuals, mostly produce
 | process-digital-SOC/   | helpers to produce CSV files for SOC files found on www.digital.com via archive.org
 | vaxhaven-to-yaml/      | produces bin/vaxhaven.yaml, describing documents on bitsavers
 
+## Infrastructure Files ##
 
+### Inputs ###
+
+_bin/filesize.store_ is a YAML file that lists URL or local file path against filesize. It is intended to act as a cache of file size data that would otherwise have to be read from either a local filesystem or from a website.
+
+_bin/md5.store_ is a YAML file that lists URL or local file path against that file's MD5 checksum. It is intended to act as a cache of MD5 checksums and speeds up processing by avoiding re-computing MD5 checksums unless absolutely necessary.
+
+_data/bitsavers-IndexByDate.txt_ is taken unchanged from https://bitsavers.org/pdf/IndexByDate.txt (or any official mirror). It should be re-fetched whenever significant new data is available.
+
+_data/VaxHaven.txt_ is a of manually concatenated web pages from the www.vaxhaven.com website. The intention is to parse this accumulated HTML data to produce a list of documents found on that website.
+
+### Outputs ###
+
+_bin/bitsavers.yaml_ is a collection of YAML that describes documents found on the bitsavers website.
+
+_bin/vaxhaven.yaml_ is a collection of YAML that describes documents found on the www.vaxhaven.com website.
+
+
+## YAML Producers ##
 
 ### bitsavers-to-yaml
 
-Takes a copy of IndexByDate.txt that has been downloaded from bitsavers, along with a file that supplies the MD5 sums for many of those files and produces a YAML file that describes the subset of DEC-related information.
+This program produces a YAML file that describes each DEC-related document found on http://www.bitsavers.org.
+
+It takes a copy of _data/bitsavers-IndexByDate.txt_ that has been downloaded from bitsavers, along with a file that supplies the MD5 sums for many of those files and produces _bin/bitsavers.yaml_, a YAML file that describes the relevant documents.
 
 ### file-tree-to-yaml
 
@@ -39,3 +60,10 @@ The intention is to combine this with other YAML data about various sites on the
 
 This program takes a cut-down portion of the SQL dump of the manx (a catalogue of computer manuals) database from 2010 and turns it into a YAML file describing the relevant parts of each entry. Since I managed to obtain a more up to date source of bitsavers MD5 checksums, this programme is less likely to be useful. It will still produce a set of older MD5 checksums which might be useful in verifying that some of the files I have match older versions that were available on bitsavers in the past.
 
+### vaxhaven-to-yaml ###
+
+This program produces a YAML file that describes each document found on http://www.vaxhaven.com.
+
+It reads _data/VaxHaven.txt_, processes it and outputs _bin/vaxhaven.yaml_.  
+_bin/filesize.store_ may be updated.  
+_bin/md5.store_ neither used nor updated.
