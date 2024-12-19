@@ -3,6 +3,25 @@ This repository holds a number of programs (mostly in Go) to help me manage the 
 
 This currently covers the collection of computer-related manuals, mostly produced by manufacturers such as DEC. It currently does not cover other documents, such as e-book and magazines which may have been acquired from the internet, although this position may change in the future.
 
+## Overview ##
+
+| Directory              | Notes
+|------------------------|-------------------------------------------------------------------------------------------|
+| bin/                   | output files
+| bitsavers-to-yaml/     | produces bin/bitsavers.yaml, describing documents on bitsavers
+| csv/                   | ?
+| data/                  | input files
+| file-tree-to-yaml/     | ?
+| find-locally-unique/   | ?
+| first-pass/            | ?
+| internal/              | internal go helpers
+| local-to-yaml/         | ?
+| manx-to-yaml/          | produces bin/manx.yaml, describing historic data from manx
+| process-digital-SOC/   | helpers to produce CSV files for SOC files found on www.digital.com via archive.org
+| vaxhaven-to-yaml/      | produces bin/vaxhaven.yaml, describing documents on bitsavers
+
+
+
 ### bitsavers-to-yaml
 
 Takes a copy of IndexByDate.txt that has been downloaded from bitsavers, along with a file that supplies the MD5 sums for many of those files and produces a YAML file that describes the subset of DEC-related information.
