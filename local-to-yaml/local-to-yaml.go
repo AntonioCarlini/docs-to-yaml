@@ -107,7 +107,7 @@ func main() {
 		log.Fatal("Failed YAML write: ", err)
 	}
 
-	// If the MD5 cache is active and it has been modified ... save it
+	// If the MD5 Store is active and it has been modified ... save it
 	md5Store.Save(*md5CacheFilename)
 }
 
