@@ -104,7 +104,7 @@ func main() {
 //	md5='' doc.Md5
 //	collection='' not currently available
 func ConvertDocumentToCsv(doc Document) []string {
-	options := fmt.Sprintf("'md5=%s' collection='UNDEFINED'", doc.Md5)
+	options := fmt.Sprintf("'md5=%s'", doc.Md5)
 	return []string{
 		"Doc",
 		doc.Title,
