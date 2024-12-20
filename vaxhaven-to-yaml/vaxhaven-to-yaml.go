@@ -105,8 +105,8 @@ func ParseNewData(filename string, fileSizeStore *Store, verbose bool) map[strin
 		}
 		// fmt.Println("data size = ", len(data), " => ", len(data[0]), "=>", data[0][1], "=> ", data[0][2], " => ", data[0][3], data[0][4])
 		document := CreateVaxHavenDocument(vaxhaven_prefix + data[0][1])
-		document.PartNum = data[0][2]
-		document.Title = data[0][3]
+		document.PartNum = strings.TrimSpace(data[0][2])
+		document.Title = strings.TrimSuffix(strings.TrimSpace(data[0][3]), "\n")
 		if len(data[0]) >= 4 {
 			document.PubDate = ConvertVaxHavenDate(docDate)
 			if document.PubDate == "XXXX" {
