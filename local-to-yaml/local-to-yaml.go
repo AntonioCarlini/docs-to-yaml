@@ -249,9 +249,9 @@ func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5
 				newDocument.Format = DetermineFileFormat(volumePath)
 				newDocument.Size = filestats.Size()
 				newDocument.Md5 = md5Checksum
-				newDocument.Title = title
+				newDocument.Title = strings.TrimSuffix(strings.TrimSpace(title), "\n")
 				newDocument.PubDate = "" // Not available anywhere
-				newDocument.PartNum = partNumber
+				newDocument.PartNum = strings.TrimSpace(partNumber)
 				newDocument.PdfCreator = pdfMetadata.Creator
 				newDocument.PdfProducer = pdfMetadata.Producer
 				newDocument.PdfVersion = pdfMetadata.Format
