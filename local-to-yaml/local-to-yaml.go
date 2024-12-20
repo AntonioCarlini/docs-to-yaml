@@ -83,17 +83,25 @@ func main() {
 	for _, item := range filepathsAndVolumes {
 		extraDocumentsMap, extraMd5Map := ParseIndexHtml(item.Path, item.Volume, item.Root, *md5Gen, md5Store, *exifRead, *verbose)
 		if *verbose {
-			for i, doc := range documentsMap {
+			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
 			}
-			fmt.Println("found ", len(documentsMap), "documents")
+			fmt.Println("found ", len(extraDocumentsMap), "new documents")
 		}
 		for k, v := range extraDocumentsMap {
+			val, key_exists := documentsMap[k]
+			if key_exists {
+				fmt.Printf("WARNING: Document [%s] already exists but being overwritten (was %v)\n", k, val)
+			}
 			documentsMap[k] = v
 		}
 		for k, v := range extraMd5Map {
 			md5Map[k] = v
 		}
+	}
+
+	if *verbose {
+		fmt.Printf("Final tally of %d documents being written to YAML\n", len(documentsMap))
 	}
 
 	// Write the output YAML file
@@ -190,7 +198,7 @@ func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5
 		log.Fatal("No matches found")
 	} else {
 		if verbose {
-			fmt.Println("Found", len(title_matches), "documents")
+			fmt.Println("Found", len(title_matches), "documents in HTML")
 		}
 		for _, match := range title_matches {
 			if len(match) != 4 {
@@ -269,6 +277,10 @@ func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5
 				}
 			}
 		}
+	}
+
+	if verbose {
+		fmt.Printf("Returning %d documents after processing HTML in %s\n", len(documentsMap), filename)
 	}
 
 	return documentsMap, md5Map
