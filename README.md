@@ -67,3 +67,8 @@ This program produces a YAML file that describes each document found on http://w
 It reads _data/VaxHaven.txt_, processes it and outputs _bin/vaxhaven.yaml_.  
 _bin/filesize.store_ may be updated.  
 _bin/md5.store_ neither used nor updated.
+
+### yaml-to-csv ###
+
+This program takes a set of YAML files containing document details and produces a CSV file that aggregates all those documents.  
+Not all of the data for each document is written, but title, part number and location information are included.s
