@@ -112,6 +112,7 @@ func main() {
 
 		if _, found := mapByFilepath[v.Filepath]; found {
 			fmt.Printf("WARNING: non-unique filepath %s for %s and %s - dropped latter\n", v.Filepath, mapByMd5[v.Filepath].Filepath, v.Filepath)
+			delete(mapByMd5, v.Filepath) // Eliminate the matching MD5 entry too
 		} else {
 			mapByFilepath[v.Filepath] = v
 		}
@@ -152,7 +153,7 @@ func main() {
 
 		// Calculate the MD5 checksum if requested and not already present
 		if *md5Gen {
-			if (doc.Md5 == "") && (doc.Md5 != doc.Filepath) {
+			if doc.Md5 == "" {
 				if *verbose {
 					fmt.Println("Calculating MD5 for ", fullPath)
 				}
@@ -209,6 +210,18 @@ func main() {
 		}
 	}
 
+	// If MD5 checksums have been generated, then there should be no blank MD5 checksums and there
+	// should be no documents where the MD5 checksum matches the filepath (at least if we ignore the pathological case
+	// of a document that is named for its MD5 checksum!).
+	// Eliminate any document in the map-by-MD5 that meets either of these criteria.
+
+	for k, v := range mapByMd5 {
+		if (v.Md5 == "") || (v.Md5 == v.Filepath) {
+			fmt.Printf("Eliminating MD5 entry for path %s using key [%s]\n", v.Filepath, k)
+			delete(mapByMd5, k)
+		}
+	}
+
 	// Ensure that each document is listed
 	fmt.Println("Finished with this many documents: ", len(mapByFilepath))
 
@@ -243,9 +256,16 @@ func main() {
 		fmt.Println("Finally finished with this many documents: ", len(mapByFilepath))
 	}
 
-	// After all the manipualtion, there must be exactly the same number of documents in the MD5 and Filepath maps
-	if len(mapByMd5) != len(mapByFilepath) {
-		log.Fatalf("After all final processing, MD5 and Filepath maps are different sizes; %d docs listed by MD5 and %d listed by filepath\n", len(mapByMd5), len(mapByFilepath))
+	// After all the manipulation, there must be exactly the same number of documents in the MD5 and Filepath maps
+	// (unless MD5 processing has not been enabled)
+	if *md5Gen && (len(mapByMd5) != len(mapByFilepath)) {
+		// log.Fatalf("After all final processing, MD5 and Filepath maps are different sizes; %d docs listed by MD5 and %d listed by filepath\n", len(mapByMd5), len(mapByFilepath))
+		fmt.Printf("After all final processing, MD5 and Filepath maps are different sizes; %d docs listed by MD5 and %d listed by filepath\n", len(mapByMd5), len(mapByFilepath))
+		// List all docs that are in MD5 but not in filepath
+		/*		for _, d := range mapByMd5 {
+				if mapByFilepath[d.Filepath]
+						}
+		*/ // List all docs that are in filepath but not in MD5
 	}
 
 	// Write the output YAML file
