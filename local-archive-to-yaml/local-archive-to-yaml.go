@@ -1,19 +1,57 @@
 package main
 
-// The purpose of this program is to record the information necessary to determine which documents in the local document collection
-// are not duplicated in other repositories on the internet. A side effect will be to produce an accurate list of local documents
-// in a form that makes it easy to perform future analysis.
+// The purpose of this program is to record the information necessary to determine which documents in the locally archived document collection
+// are not duplicated in other repositories on the internet.
 //
-// The intention is to record the file path, the document title, and the part number. The publication date has a field too, but
-// I don't currently have that recorded anywhere and there are a lot of documents! Perhaps it may be added as required over time.
+// This program analyses a file tree corresponding to an archived DVD-R (or CD-R) to produce a YAML output that describes
+// each of the documents on that archived disc.
 //
-// The MD5 checksum will help to uniquely identify documents and to spot duplicates. It isn't suffieient however, as, for example,
+// The program records these items for every document it finds:
+//   o the file path
+//   o the document title
+//   o the document part number (or sometimes an analogue where no official poart number is evident)
+//   o the MD5 checksum
+//   o for PDF files, some PDF metadata may be recorded if it can be extracted
+//
+// The publication date has a field too, but I don't currently have that recorded anywhere and there are a lot of documents!
+// Perhaps it may be added as required over time.
+//
+// The MD5 checksum will help to uniquely identify documents and to spot duplicates. It isn't sufficient however, as, for example,
 // documents on bitsavers have changed since I originally downloaded them, even if the changes are only to the metadata. So to
 // more reliably spot documents that I have scanned, I record PDF metdata, so that can be used to sort scans.
 //
 // For background, the local documents were originally archived on DVD-R but now live in various directories on a NAS.
 // As there are over 40 locations to scan, this program accepts an "indirect file", which is a list of directories
 // to look at (along with a suitable prefix, although that is currently ignored).
+//
+// OPERATION
+//
+// All the existing archived optical media has a top-level index.htm that provides a list of documents and their properties
+// or links to further HTML files that perform that function. There is some inconsistency in how these index files are laid out
+// but that will be resolved over time.
+//
+// index.txt and index.pdf provide the same information but in a harder to parse form. These files were in fact generated
+// from the index.htm and so contain no additional information.
+// When present at the top level DEC_NNNN.CRC (where NNNN is the disc number) provides CRC information.
+// When present at the top level md5sum provides MD5 information.
+//
+// The discs were originally produced on a Windows system and as that has a case-insensitive file system it was not noticed
+// that the link does not always exactly match the target file in case. So it is necessary to account for this when analysing
+// links on an operating system with a case-sensitive file system, such as Linux.
+//
+// USAGE
+//
+// Run the program from the repo top level like this:
+//
+//   go run local-archive-to-yaml/local-archive-to-yaml.go --verbose --md5-cache bin/md5.store  --md5-sum --indirect-file INDIRECT.txt --yaml DOCS.YAML
+//
+//  --verbose turns on additional messages that may be useful in tracking program operation
+//  --md5-sum causes MD5 checksums to be calculated if not already in the store
+//  --md5-cache-create allows an MD5 cache to be created if the one specified does not exist
+//  --md5-cache indicates where the cache of MD5 data can be found; this will be created if it does not exist and --md5-cache-create is specified and will be updated if --md5-sum is specified
+//  --indirect-file indicates the indirect file that specifies which index files to analyse
+//  --exif causes PDF metadata to be extracted and stored
+//  --yaml-output specifies where the YAML data should be stored
 
 import (
 	"bufio"
