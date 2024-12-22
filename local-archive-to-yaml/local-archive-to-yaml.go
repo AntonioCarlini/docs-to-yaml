@@ -72,6 +72,7 @@ package main
 // Each of the metadata/????.htm files contains links to documents and never links to further index HTML files.
 //
 // If there is no metadata/ subdirectory then all links in the root index.htm are to documents that should be indexed.
+//
 
 import (
 	"bufio"
@@ -103,11 +104,27 @@ type PathAndVolume struct {
 	Root   string
 }
 
+type ArchiveCategory int
+
+const (
+	AC_Undefined ArchiveCategory = iota
+	AC_CSV
+	AC_Regular
+	AC_HTML
+	AC_Metadata
+	AC_Custom
+)
+
+func (ac ArchiveCategory) String() string {
+	return [...]string{"AC_Undefined", "AC_CSV", "AC_Regular", "AC_HTML", "AC_Metadata", "AC_Custom"}[ac]
+}
+
 // Main entry point.
 // Processes the indirect file.
 // For each entry, parses the specified HTML file.
 // Finally outputs the cumulative YAML file.
 func main() {
+	statistics := flag.Bool("statistics", false, "Enable statistics reporting")
 	verbose := flag.Bool("verbose", false, "Enable verbose reporting")
 	yamlOutputFilename := flag.String("yaml-output", "", "filepath of the output file to hold the generated yaml")
 	md5Gen := flag.Bool("md5-sum", false, "Enable generation of MD5 sums")
@@ -151,7 +168,7 @@ func main() {
 	}
 
 	for _, item := range filepathsAndVolumes {
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(item.Path, item.Volume, item.Root, *md5Gen, md5Store, *exifRead, *verbose)
+		extraDocumentsMap, extraMd5Map := ProcessArchive(item, *md5Gen, md5Store, *exifRead, *verbose)
 		if *verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -161,6 +178,7 @@ func main() {
 		for k, v := range extraDocumentsMap {
 			val, key_exists := documentsMap[k]
 			if key_exists {
+				var _ = val
 				fmt.Printf("WARNING: Document [%s] already exists but being overwritten (was %v)\n", k, val)
 			}
 			documentsMap[k] = v
@@ -170,7 +188,7 @@ func main() {
 		}
 	}
 
-	if *verbose {
+	if *statistics {
 		fmt.Printf("Final tally of %d documents being written to YAML\n", len(documentsMap))
 	}
 
@@ -189,8 +207,232 @@ func main() {
 	md5Store.Save(*md5CacheFilename)
 }
 
+func ProcessArchive(archive PathAndVolume, md5Gen bool, md5Store *persistentstore.Store[string, string], exifRead bool, verbose bool) (map[string]Document, map[string]string) {
+	category := DetermineCategory((archive.Root))
+
+	switch category {
+	case AC_Undefined:
+		fmt.Printf("Cannot process undefined category for %s\n", archive.Root)
+	case AC_CSV:
+		fmt.Printf("Cannot process CSV category for %s\n", archive.Root)
+	case AC_Regular:
+		return ParseIndexHtml(archive.Path+"index.htm", archive.Volume, archive.Root, md5Gen, md5Store, exifRead, verbose)
+	case AC_HTML:
+		return ProcessCategoryHTML(archive, md5Gen, md5Store, exifRead, verbose)
+	case AC_Metadata:
+		fmt.Printf("Cannot process 'metadata' category for %s\n", archive.Root)
+	case AC_Custom:
+		fmt.Printf("Cannot process 'custom' category for %s\n", archive.Root)
+	}
+	return nil, nil
+}
+
+func ProcessCategoryHTML(archive PathAndVolume, md5Gen bool, md5Store *persistentstore.Store[string, string], exifRead bool, verbose bool) (map[string]Document, map[string]string) {
+	// 1. Find all links in INDEX.HTM ... each one must point to HTML/XXXX.HTM; build a list of these targets
+	// 2. Verify that every file in HTML/ (regardless of filetype) appears in the list of targets
+	// process each .HTM file
+
+	// Read INDEX.HTM
+	indexPath := archive.Path + "INDEX.HTM"
+	bytes, err := os.ReadFile(indexPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Build  alist of links found in INDEX.HTM
+	var links []string
+	re := regexp.MustCompile(`(?m)<TD>\s*<A HREF=\"(.*?)\">\s+(.*?)<\/A>\s+<\/TD>`)
+	matches := re.FindAllStringSubmatch(string(bytes), -1)
+	if len(matches) == 0 {
+		log.Fatal("No matches found")
+	} else {
+		for _, v := range matches {
+			links = append(links, strings.ToUpper(v[1]))
+		}
+	}
+
+	if verbose || true /*TOOD*/ {
+		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
+	}
+
+	subdir := archive.Path + "HTML/"
+
+	var containsDir bool
+
+	// Walk through the directory and its contents
+	err = filepath.Walk(subdir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			// Handle any error that occurs during file walking
+			fmt.Println("Error:", err)
+			return err
+		}
+		// Skip the top-level directory itself
+		if path == subdir {
+			return nil
+		}
+
+		// Check if the current path is a directory
+		if info.IsDir() {
+			// Mark that we have encountered a directory
+			containsDir = true
+			fmt.Printf("WARNING Found subdirectory %s in %s\n", path, subdir)
+			return nil
+		}
+
+		// All files in HTML/ should have completely uppercase names
+		// if strings.ToUpper(path) != path {
+		//	fmt.Printf("WARNING Found not-all-uppercase file %s in %s\n", path, subdir)
+		//}
+
+		// TODO
+		// All files in HTML/ should appear in links
+		// relativePath, err := filepath.Rel(subdir, path)
+		//relativePath := path
+		//if !links.Contains(relativePath) {
+		//	fmt.Printf("WARNING Found not-all-uppercase file %s in %\n", path, subdir)
+		//}
+
+		return nil
+	})
+
+	documentsMap := make(map[string]Document)
+	md5Map := make(map[string]string)
+
+	if err != nil {
+		fmt.Println("Error walking the path:", err)
+		return documentsMap, md5Map
+	}
+
+	// Report whether any directories were found
+	if containsDir {
+		fmt.Println("HTML/ contains directories.")
+	}
+
+	fmt.Printf("Processing category HTML: TBD\n")
+
+	// For each link ... process it
+	for _, idx := range links {
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Gen, md5Store, exifRead, verbose)
+		if verbose {
+			for i, doc := range extraDocumentsMap {
+				fmt.Println("doc", i, "=>", doc)
+			}
+			fmt.Println("found ", len(extraDocumentsMap), "new documents")
+		}
+		for k, v := range extraDocumentsMap {
+			val, key_exists := documentsMap[k]
+			if key_exists {
+				var _ = val
+				fmt.Printf("WARNING: Document [%s] already exists but being overwritten (was %v)\n", k, val)
+			}
+			documentsMap[k] = v
+		}
+		for k, v := range extraMd5Map {
+			md5Map[k] = v
+		}
+	}
+
+	return documentsMap, md5Map
+}
+
+// Given the path to the root of a document archive, this function works out the
+// category that the rchive falls into and returns the result.
+// The category will be used to determine how to process the archive to extract document information.
+func DetermineCategory(archiveRoot string) ArchiveCategory {
+	// Make sure that archiveRoot has a trailing /
+	if archiveRoot[len(archiveRoot)-1:] != "/" {
+		archiveRoot += "/"
+	}
+
+	found_index_dot_htm := true
+	if _, err := os.Stat(archiveRoot + "index.htm"); os.IsNotExist(err) {
+		found_index_dot_htm = false
+	}
+
+	found_INDEX_dot_HTM := true
+	if _, err := os.Stat(archiveRoot + "INDEX.HTM"); os.IsNotExist(err) {
+		found_INDEX_dot_HTM = false
+	}
+
+	found_custom_indicator := true
+	if _, err := os.Stat(archiveRoot + "DEC_0040.CRC"); os.IsNotExist(err) {
+		found_custom_indicator = false
+	}
+
+	found_dir_HTML := SubdirectoryExists(archiveRoot + "HTML")
+	found_dir_metadata := SubdirectoryExists(archiveRoot + "metadata")
+
+	var category ArchiveCategory = AC_Undefined
+
+	valid := true
+
+	if found_INDEX_dot_HTM {
+		if !found_dir_HTML {
+			fmt.Printf("found INDEX.HTM but no /HTML in %s\n", archiveRoot)
+			valid = false
+		}
+		if found_index_dot_htm || found_dir_metadata || found_custom_indicator {
+			fmt.Printf("found INDEX.HTM with one or more of index.htm, metdata/ or DEC_0040.CRC in %s\n", archiveRoot)
+			valid = false
+		}
+		if valid {
+			category = AC_HTML
+		}
+	} else if found_dir_HTML {
+		fmt.Printf("found /HTML but no INDEX.HTM in %s\n", archiveRoot)
+		valid = false
+	}
+
+	if !found_index_dot_htm && category != AC_HTML {
+		fmt.Printf("No index.htm found in %s\n", archiveRoot)
+		valid = false
+	}
+
+	if found_dir_metadata {
+		if found_custom_indicator {
+			fmt.Printf("Found both metadata/ and DEC_0040.CRC in %s\n", archiveRoot)
+			valid = false
+		}
+		if valid {
+			category = AC_Metadata
+		}
+	}
+
+	if found_custom_indicator {
+		if valid {
+			category = AC_Custom
+		}
+	}
+
+	if valid && category == AC_Undefined {
+		category = AC_Regular
+	}
+
+	// fmt.Printf("index.htm: %-7t  INDEX.HTM: %-7t /HTML: %-7t /metadata: %-7t custom: %-7t cat: %-12s in %s\n", found_index_dot_htm, found_INDEX_dot_HTM, found_dir_HTML, found_dir_metadata, found_custom_indicator, category, archiveRoot)
+
+	return category
+}
+
+// Returns true if the specified path is a subdirectory
+func SubdirectoryExists(path string) bool {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		// Does not exist at all, either as a file or as a directory
+		return false
+	} else {
+		// Check that it is actually a directory
+		if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+			// Confirmed to be a path
+			return true
+		} else {
+			// Exists but is a file not a path
+			return false
+		}
+	}
+
+}
+
 // Each line of the indirect file consist of:
-// full-path-to-HTML-index prefix [optional-full-path-to-root]
+// full-path-to-archive-root prefix [optional-full-path-to-root]
 //
 // If full-path-to-HTML-index starts with a double quote, then it ends with one too.
 // The same would be true of optional-full-path-to-root, but that has not been implemented.
@@ -214,9 +456,9 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 		}
 		quotedString := re.FindAllString(line, -1)
 		if quotedString == nil {
-			return result, fmt.Errorf("indirect file line %d, cannot parse line: [%s])\n", lineNumber, line)
+			return result, fmt.Errorf("indirect file line %d, cannot parse line: [%s])", lineNumber, line)
 		} else if len(quotedString) == 1 {
-			return result, fmt.Errorf("indirect file line %d, missing volume name (after %s)\n", lineNumber, quotedString[0])
+			return result, fmt.Errorf("indirect file line %d, missing volume name (after %s)", lineNumber, quotedString[0])
 		}
 
 		q0 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[0])
@@ -227,7 +469,7 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 			q2 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[2])
 			result = append(result, PathAndVolume{Path: q0, Volume: quotedString[1], Root: q2})
 		default:
-			return result, fmt.Errorf("indirect file line %d, too many elements: %d\n", lineNumber, len(quotedString))
+			return result, fmt.Errorf("indirect file line %d, too many elements: %d", lineNumber, len(quotedString))
 		}
 	}
 	return result, nil
@@ -240,7 +482,7 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5Store *persistentstore.Store[string, string], readExif bool, verbose bool) (map[string]Document, map[string]string) {
 
 	if verbose {
-		fmt.Println("Processing", filename)
+		fmt.Println("Processing index for ", filename)
 	}
 	path := filepath.Dir(filename)
 	bytes, err := os.ReadFile(filename)
@@ -291,7 +533,7 @@ func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5
 					log.Fatal(err)
 				}
 				if len(candidateFile) == 0 {
-					log.Println("No file found:", fullFilepath)
+					log.Printf("MISSING file: %s linked from %s\n", fullFilepath, filename)
 					continue
 				} else if len(candidateFile) != 1 {
 					log.Fatal("Too many files found:", candidateFile)
@@ -449,8 +691,8 @@ func StripOptionalLeadingAndTrailingDoubleQuotes(candidate string) string {
 	result := candidate
 	if (result[0] == '"') && (result[len(result)-1] == '"') {
 		result = result[1 : len(result)-1]
-		fmt.Printf("removed quotes from: [%s]\n", candidate)
-		fmt.Printf("result is          :  [%s]\n", result)
+		// fmt.Printf("removed quotes from: [%s]\n", candidate)
+		// fmt.Printf("result is          :  [%s]\n", result)
 	}
 	return result
 }
