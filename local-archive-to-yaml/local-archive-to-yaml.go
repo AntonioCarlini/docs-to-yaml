@@ -180,11 +180,14 @@ func main() {
 			key := k
 			val, key_exists := documentsMap[k]
 			if key_exists {
-				fmt.Printf("WARNING(1): Document [%s] in %s already exists (was %s)\n", k, v.Filepath, val.Filepath)
-				key = k + "DUPLICATE-of-" + val.Filepath
-			}
-			if key != k {
-				fmt.Printf("NOTE: key updated from %s to %s\n", k, key)
+				if (v.Md5 != "") && (v.Md5 == val.Md5) {
+					if *verbose {
+						fmt.Printf("WARNING(1a): Document [%s] already exists, identical to original %v (was %v)\n", k, v, val)
+					}
+				} else {
+					fmt.Printf("WARNING(1): Document [%s] in %s already exists (was %s)\n", k, v.Filepath, val.Filepath)
+					key = k + "DUPLICATE-of-" + val.Filepath
+				}
 			}
 			documentsMap[key] = v
 		}
@@ -327,7 +330,13 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Gen bool, md5Store *persisten
 		for k, v := range extraDocumentsMap {
 			val, key_exists := documentsMap[k]
 			if key_exists {
-				fmt.Printf("WARNING(2): Document [%s] already exists but being overwritten by %v (was %v)\n", k, v, val)
+				if (v.Md5 != "") && (v.Md5 == val.Md5) {
+					if verbose {
+						fmt.Printf("WARNING(2a): Document [%s] already exists, identical to original %v (was %v)\n", k, v, val)
+					}
+				} else {
+					fmt.Printf("WARNING(2): Document [%s] already exists but being overwritten by %v (was %v)\n", k, v, val)
+				}
 			}
 			documentsMap[k] = v
 		}
