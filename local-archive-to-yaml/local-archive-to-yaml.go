@@ -89,7 +89,7 @@ type PathAndVolume struct {
 // Finally outputs the cumulative YAML file.
 func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose reporting")
-	yamlOutputFilename := flag.String("yaml", "", "filepath of the output file to hold the generated yaml")
+	yamlOutputFilename := flag.String("yaml-output", "", "filepath of the output file to hold the generated yaml")
 	md5Gen := flag.Bool("md5-sum", false, "Enable generation of MD5 sums")
 	exifRead := flag.Bool("exif", false, "Enable EXIF reading")
 	indirectFile := flag.String("indirect-file", "", "a file that contains a set of directories to process")
@@ -98,8 +98,20 @@ func main() {
 
 	flag.Parse()
 
+	fatal_error_seen := false
+
 	if *yamlOutputFilename == "" {
-		log.Fatal("Please supply a filespec for the output YAML")
+		log.Print("-yaml-output is mandatory - specify an output YAML file")
+		fatal_error_seen = true
+	}
+
+	if *indirectFile == "" {
+		log.Print("--indirect-file is mandatory - specify an input INDIRECT file")
+		fatal_error_seen = true
+	}
+
+	if fatal_error_seen {
+		log.Fatal("Unable to continue becuase of one or more fatal errors")
 	}
 
 	md5StoreInstantiation := persistentstore.Store[string, string]{}
