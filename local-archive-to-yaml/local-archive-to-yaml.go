@@ -175,13 +175,18 @@ func main() {
 			}
 			fmt.Println("found ", len(extraDocumentsMap), "new documents")
 		}
+
 		for k, v := range extraDocumentsMap {
+			key := k
 			val, key_exists := documentsMap[k]
 			if key_exists {
-				var _ = val
-				fmt.Printf("WARNING: Document [%s] already exists but being overwritten (was %v)\n", k, val)
+				fmt.Printf("WARNING(1): Document [%s] in %s already exists (was %s)\n", k, v.Filepath, val.Filepath)
+				key = k + "DUPLICATE-of-" + val.Filepath
 			}
-			documentsMap[k] = v
+			if key != k {
+				fmt.Printf("NOTE: key updated from %s to %s\n", k, key)
+			}
+			documentsMap[key] = v
 		}
 		for k, v := range extraMd5Map {
 			md5Map[k] = v
@@ -220,7 +225,7 @@ func ProcessArchive(archive PathAndVolume, md5Gen bool, md5Store *persistentstor
 	case AC_HTML:
 		return ProcessCategoryHTML(archive, md5Gen, md5Store, exifRead, verbose)
 	case AC_Metadata:
-		fmt.Printf("Cannot process 'metadata' category for %s\n", archive.Root)
+		return ProcessCategoryMetadata(archive, md5Gen, md5Store, exifRead, verbose)
 	case AC_Custom:
 		fmt.Printf("Cannot process 'custom' category for %s\n", archive.Root)
 	}
@@ -322,8 +327,115 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Gen bool, md5Store *persisten
 		for k, v := range extraDocumentsMap {
 			val, key_exists := documentsMap[k]
 			if key_exists {
+				fmt.Printf("WARNING(2): Document [%s] already exists but being overwritten by %v (was %v)\n", k, v, val)
+			}
+			documentsMap[k] = v
+		}
+		for k, v := range extraMd5Map {
+			md5Map[k] = v
+		}
+	}
+
+	return documentsMap, md5Map
+}
+
+func ProcessCategoryMetadata(archive PathAndVolume, md5Gen bool, md5Store *persistentstore.Store[string, string], exifRead bool, verbose bool) (map[string]Document, map[string]string) {
+	// 1. Find all links in index.htm ... each one must point to HTML/XXXX.HTM; build a list of these targets
+	// 2. Verify that every file in metadata/ (regardless of filetype) appears in the list of targets
+	// process each .HTM file
+
+	// Read index.htm
+	indexPath := archive.Path + "index.htm"
+	bytes, err := os.ReadFile(indexPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Build a list of links found in index.htm
+	var links []string
+	re := regexp.MustCompile(`(?ms)<TD>\s*<A HREF=\"(.*?)\">\s+(.*?)<\/A>`)
+	matches := re.FindAllStringSubmatch(string(bytes), -1)
+	if len(matches) == 0 {
+		log.Fatalf("No matches found in %s", indexPath)
+	} else {
+		for _, v := range matches {
+			links = append(links, v[1])
+		}
+	}
+
+	if verbose || true /*TOOD*/ {
+		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
+	}
+
+	subdir := archive.Path + "metadata/"
+
+	var containsDir bool
+
+	// Walk through the directory and its contents
+	err = filepath.Walk(subdir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			// Handle any error that occurs during file walking
+			fmt.Println("Error:", err)
+			return err
+		}
+		// Skip the top-level directory itself
+		if path == subdir {
+			return nil
+		}
+
+		// Check if the current path is a directory
+		if info.IsDir() {
+			// Mark that we have encountered a directory
+			containsDir = true
+			fmt.Printf("WARNING Found subdirectory %s in %s\n", path, subdir)
+			return nil
+		}
+
+		// All files in HTML/ should have completely uppercase names
+		// if strings.ToUpper(path) != path {
+		//	fmt.Printf("WARNING Found not-all-uppercase file %s in %s\n", path, subdir)
+		//}
+
+		// TODO
+		// All files in HTML/ should appear in links
+		// relativePath, err := filepath.Rel(subdir, path)
+		//relativePath := path
+		//if !links.Contains(relativePath) {
+		//	fmt.Printf("WARNING Found not-all-uppercase file %s in %\n", path, subdir)
+		//}
+
+		return nil
+	})
+
+	documentsMap := make(map[string]Document)
+	md5Map := make(map[string]string)
+
+	if err != nil {
+		fmt.Println("Error walking the path:", err)
+		return documentsMap, md5Map
+	}
+
+	// Report whether any directories were found
+	if containsDir {
+		fmt.Println("metadata/ contains directories.")
+	}
+
+	fmt.Printf("Processing category HTML: TBD\n")
+
+	// For each link ... process it
+	for _, idx := range links {
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Gen, md5Store, exifRead, verbose)
+		if verbose {
+			for i, doc := range extraDocumentsMap {
+				fmt.Println("doc", i, "=>", doc)
+			}
+			fmt.Println("found ", len(extraDocumentsMap), "new documents")
+		}
+		for k, v := range extraDocumentsMap {
+			val, key_exists := documentsMap[k]
+			if key_exists {
 				var _ = val
-				fmt.Printf("WARNING: Document [%s] already exists but being overwritten (was %v)\n", k, val)
+				fmt.Printf("WARNING(3): Document [%s] already exists but being overwritten (was %v)\n", k, val)
 			}
 			documentsMap[k] = v
 		}
@@ -547,13 +659,6 @@ func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5
 						log.Fatal(err)
 					}
 				}
-				key := md5Checksum
-				if key == "" {
-					key = partNumber
-					if key == "" {
-						key = title
-					}
-				}
 
 				filestats, err := os.Stat(candidateFile[0])
 				if err != nil {
@@ -577,12 +682,25 @@ func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5
 				newDocument.PdfVersion = pdfMetadata.Format
 				newDocument.PdfModified = pdfMetadata.Modified
 				newDocument.Filepath = "file:///" + volume + "/" + modifiedVolumePath
+
+				key := md5Checksum
+				if key == "" {
+					key = partNumber + "~" + newDocument.Format
+					if key == "" {
+						key = title + "~" + newDocument.Format
+					}
+				}
+
 				// If a duplicate is found, keep the previous entry
 				if _, ok := documentsMap[key]; ok {
 					// If the duplicated entries share the same filepath, then the same file is linked to
 					// more than once. This is not a true "conflicting" duplicate, so suppress the report.
 					if newDocument.Filepath != documentsMap[key].Filepath {
-						log.Println("Duplicate entry for ", key, " path: ", newDocument.Filepath, " previous: ", documentsMap[key].Filepath)
+						previousFilePath := documentsMap[key].Filepath
+						// TODO here should warn if warning set and should count duplicates
+						// TODO fmt.Println("WARNING(1) Duplicate entry for ", key, " path: ", newDocument.Filepath, " previous: ", previousFilePath)
+						newKey := key + "DUPLICATE" + strings.Replace(previousFilePath, "/", "_", 20)
+						documentsMap[newKey] = newDocument
 					}
 				} else {
 					documentsMap[key] = newDocument
