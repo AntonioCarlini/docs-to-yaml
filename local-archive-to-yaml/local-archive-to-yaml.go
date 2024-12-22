@@ -316,8 +316,6 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Gen bool, md5Store *persisten
 		fmt.Println("HTML/ contains directories.")
 	}
 
-	fmt.Printf("Processing category HTML: TBD\n")
-
 	// For each link ... process it
 	for _, idx := range links {
 		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Gen, md5Store, exifRead, verbose)
@@ -428,8 +426,6 @@ func ProcessCategoryMetadata(archive PathAndVolume, md5Gen bool, md5Store *persi
 	if containsDir {
 		fmt.Println("metadata/ contains directories.")
 	}
-
-	fmt.Printf("Processing category HTML: TBD\n")
 
 	// For each link ... process it
 	for _, idx := range links {
