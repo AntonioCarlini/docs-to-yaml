@@ -52,6 +52,26 @@ package main
 //  --indirect-file indicates the indirect file that specifies which index files to analyse
 //  --exif causes PDF metadata to be extracted and stored
 //  --yaml-output specifies where the YAML data should be stored
+//
+// NOTES
+//
+// To simplify processing, and particularly sanity checking, the following notes split all current acrhived media into a small number of categories.
+// As well as simplyfing the indirect file, handling these categories in the code should allow for better sanity checking of the generated data.
+//
+// All newly archived media (whether on DVD-R or on a NAS etc.) will include a properly formatted index.csv in the root directory and that will provide all the information that this program is trying to create.
+// So if index.csv is found, parse it and produce YAML output from that.
+//
+// If INDEX.HTM is found, all its links will point to .HTM files in HTML/. Each of these .HTM files links to final documents. Any further HTML files found in links are final documents and not further index files.
+// As it so happens there is only one archived DVD-R that fits this pattern and it has no further HMTL files anyway.
+//
+// All other archived media contains an index.htm.
+//
+// If DEC_0040.CRC exists in the root, then this is a special case.
+//
+// If the metadata/ subdirectory exists, then all links in index.htm must be to .htm files in metadata/.
+// Each of the metadata/????.htm files contains links to documents and never links to further index HTML files.
+//
+// If there is no metadata/ subdirectory then all links in the root index.htm are to documents that should be indexed.
 
 import (
 	"bufio"
