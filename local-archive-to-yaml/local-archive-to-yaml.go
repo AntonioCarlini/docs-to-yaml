@@ -230,7 +230,7 @@ func ProcessArchive(archive PathAndVolume, md5Gen bool, md5Store *persistentstor
 	case AC_Metadata:
 		return ProcessCategoryMetadata(archive, md5Gen, md5Store, exifRead, verbose)
 	case AC_Custom:
-		fmt.Printf("Cannot process 'custom' category for %s\n", archive.Root)
+		return ProcessCategoryCustom(archive, md5Gen, md5Store, exifRead, verbose)
 	}
 	return nil, nil
 }
@@ -447,6 +447,76 @@ func ProcessCategoryMetadata(archive PathAndVolume, md5Gen bool, md5Store *persi
 		for k, v := range extraMd5Map {
 			md5Map[k] = v
 		}
+	}
+
+	return documentsMap, md5Map
+}
+
+// This function processes the one local archive that has an index.htm that both contains links to actual documents but also
+// to further .htm files which also contain links to actual documents. Any .htm files in these further .htm files are not
+// processed as contains of links but as actual documents.
+
+func ProcessCategoryCustom(archive PathAndVolume, md5Gen bool, md5Store *persistentstore.Store[string, string], exifRead bool, verbose bool) (map[string]Document, map[string]string) {
+
+	// Read index.htm
+	indexPath := archive.Path + "index.htm"
+	bytes, err := os.ReadFile(indexPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Build a list of links found in index.htm
+	var links []string
+	re := regexp.MustCompile(`(?ms)<TD>\s*<A HREF=\"(.*?)\">\s+(.*?)<\/A>`)
+	matches := re.FindAllStringSubmatch(string(bytes), -1)
+	if len(matches) == 0 {
+		log.Fatalf("No matches found in %s", indexPath)
+	} else {
+		for _, v := range matches {
+			target := v[1]
+			partNum := v[2]
+			if strings.HasSuffix(target, ".htm") {
+				links = append(links, v[1])
+			} else {
+				fmt.Printf("Ignoring document [%s] p/n [%s]\n", target, partNum)
+			}
+		}
+	}
+
+	if verbose || true /*TODO*/ {
+		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
+	}
+
+	documentsMap := make(map[string]Document)
+	md5Map := make(map[string]string)
+
+	if err != nil {
+		fmt.Println("Error walking the path:", err)
+		return documentsMap, md5Map
+	}
+
+	// For each link ... process it
+	for _, idx := range links {
+		// Link in index.htm ends in .htm, so process it as a container of links to documents
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Gen, md5Store, exifRead, verbose)
+		if verbose {
+			for i, doc := range extraDocumentsMap {
+				fmt.Println("doc", i, "=>", doc)
+			}
+			fmt.Println("found ", len(extraDocumentsMap), "new documents")
+		}
+		for k, v := range extraDocumentsMap {
+			val, key_exists := documentsMap[k]
+			if key_exists {
+				var _ = val
+				fmt.Printf("WARNING(3): Document [%s] already exists but being overwritten (was %v)\n", k, val)
+			}
+			documentsMap[k] = v
+		}
+		for k, v := range extraMd5Map {
+			md5Map[k] = v
+		}
+
 	}
 
 	return documentsMap, md5Map
