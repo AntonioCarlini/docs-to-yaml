@@ -523,7 +523,7 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Gen bool, md5Store *persist
 }
 
 // Given the path to the root of a document archive, this function works out the
-// category that the rchive falls into and returns the result.
+// category that the archive falls into and returns the result.
 // The category will be used to determine how to process the archive to extract document information.
 func DetermineCategory(archiveRoot string) ArchiveCategory {
 	// Make sure that archiveRoot has a trailing /
@@ -636,11 +636,19 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 	scanner := bufio.NewScanner(file)
 	re := regexp.MustCompile(`[^\s"]+|"([^"]*)"`)
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := strings.TrimSpace(scanner.Text())
 		lineNumber += 1
+
+		// Skip empty lines
 		if len(line) == 0 {
 			continue
 		}
+
+		// Skip lines that start with a "#": these are considered to be comments
+		if string(line[0]) == "#" {
+			continue
+		}
+
 		quotedString := re.FindAllString(line, -1)
 		if quotedString == nil {
 			return result, fmt.Errorf("indirect file line %d, cannot parse line: [%s])", lineNumber, line)
