@@ -100,9 +100,9 @@ type PdfMetadata = pdfmetadata.PdfMetadata
 // PathAndVolume represents a single local archive.
 // PathAndVolume is used when parsing the indirect file.
 type PathAndVolume struct {
-	Path   string // Path to the root of the local archive
-	Volume string // Name of the local archive
-	Root   string // Path to the root of the local archive
+	Path       string // Path to the root of the local archive
+	VolumeName string // Name of the local archive
+	Root       string // Path to the root of the local archive
 }
 
 type ProgamFlags struct {
@@ -231,15 +231,15 @@ func main() {
 }
 
 func ProcessArchive(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
-	category := DetermineCategory((archive.Root))
+	category := DetermineCategory((archive.Path))
 
 	switch category {
 	case AC_Undefined:
-		fmt.Printf("Cannot process undefined category for %s\n", archive.Root)
+		fmt.Printf("Cannot process undefined category for %s\n", archive.Path)
 	case AC_CSV:
-		fmt.Printf("Cannot process CSV category for %s\n", archive.Root)
+		fmt.Printf("Cannot process CSV category for %s\n", archive.Path)
 	case AC_Regular:
-		return ParseIndexHtml(archive.Path+"index.htm", archive.Volume, archive.Root, md5Store, programFlags)
+		return ParseIndexHtml(archive.Path+"index.htm", archive.VolumeName, archive.Path, md5Store, programFlags)
 	case AC_HTML:
 		return ProcessCategoryHTML(archive, md5Store, programFlags)
 	case AC_Metadata:
@@ -333,7 +333,7 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Store *persistentstore.Store[
 
 	// For each link ... process it
 	for _, idx := range links {
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Store, programFlags)
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
 		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -444,7 +444,7 @@ func ProcessCategoryMetadata(archive PathAndVolume, md5Store *persistentstore.St
 
 	// For each link ... process it
 	for _, idx := range links {
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Store, programFlags)
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
 		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -499,9 +499,9 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Stor
 			} else {
 				fullFilepath := archive.Path + target
 				absoluteFilepath, _ := filepath.Abs(fullFilepath)
-				modifiedVolumePath := absoluteFilepath[len(archive.Root):]
+				modifiedVolumePath := absoluteFilepath[len(archive.Path):]
 				documentPath := "file:///" + "DEC_0040" + "/" + modifiedVolumePath
-
+				fmt.Println("full=[", fullFilepath, "] abs=[", absoluteFilepath, "] mod=[", modifiedVolumePath, "] a.P=[", archive.Path, "]")
 				md5Checksum := ""
 				if programFlags.GenerateMD5 {
 					md5Checksum, err = CalculateMd5Sum(fullFilepath, md5Store, programFlags.Verbose)
@@ -534,7 +534,7 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Stor
 	// Process each .htm link
 	for _, idx := range links {
 		// Link in index.htm ends in .htm, so process it as a container of links to documents
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Store, programFlags)
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
 		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -696,10 +696,10 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 		q0 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[0])
 		switch len(quotedString) {
 		case 2:
-			result = append(result, PathAndVolume{Path: q0, Volume: quotedString[1], Root: filepath.Dir(q0)})
+			result = append(result, PathAndVolume{Path: q0, VolumeName: quotedString[1], Root: filepath.Dir(q0)})
 		case 3:
 			q2 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[2])
-			result = append(result, PathAndVolume{Path: q0, Volume: quotedString[1], Root: q2})
+			result = append(result, PathAndVolume{Path: q0, VolumeName: quotedString[1], Root: q2})
 		default:
 			return result, fmt.Errorf("indirect file line %d, too many elements: %d", lineNumber, len(quotedString))
 		}
