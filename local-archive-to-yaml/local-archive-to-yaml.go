@@ -97,11 +97,19 @@ type Document = document.Document
 
 type PdfMetadata = pdfmetadata.PdfMetadata
 
-// PathAndVolume is used when parsing the indirect file
+// PathAndVolume represents a single local archive.
+// PathAndVolume is used when parsing the indirect file.
 type PathAndVolume struct {
-	Path   string
-	Volume string
-	Root   string
+	Path   string // Path to the root of the local archive
+	Volume string // Name of the local archive
+	Root   string // Path to the root of the local archive
+}
+
+type ProgamFlags struct {
+	Statistics  bool // display statistics
+	Verbose     bool // display extra infomational messages
+	GenerateMD5 bool // generate MD5 checksums
+	ReadEXIF    bool // Read EXIF data from PDF files
 }
 
 type ArchiveCategory int
@@ -148,11 +156,18 @@ func main() {
 	}
 
 	if fatal_error_seen {
-		log.Fatal("Unable to continue becuase of one or more fatal errors")
+		log.Fatal("Unable to continue because of one or more fatal errors")
 	}
 
+	var programFlags ProgamFlags
+
+	programFlags.Statistics = *statistics
+	programFlags.Verbose = *verbose
+	programFlags.ReadEXIF = *exifRead
+	programFlags.GenerateMD5 = *md5Gen
+
 	md5StoreInstantiation := persistentstore.Store[string, string]{}
-	md5Store, err := md5StoreInstantiation.Init(*md5CacheFilename, *md5CacheCreate, *verbose)
+	md5Store, err := md5StoreInstantiation.Init(*md5CacheFilename, *md5CacheCreate, programFlags.Verbose)
 	if err != nil {
 		fmt.Printf("Problem initialising MD5 Store: %+v\n", err)
 	} else if *verbose {
@@ -168,7 +183,7 @@ func main() {
 	}
 
 	for _, item := range filepathsAndVolumes {
-		extraDocumentsMap, extraMd5Map := ProcessArchive(item, *md5Gen, md5Store, *exifRead, *verbose)
+		extraDocumentsMap, extraMd5Map := ProcessArchive(item, md5Store, programFlags)
 		if *verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -196,7 +211,7 @@ func main() {
 		}
 	}
 
-	if *statistics {
+	if programFlags.Statistics {
 		fmt.Printf("Final tally of %d documents being written to YAML\n", len(documentsMap))
 	}
 
@@ -215,7 +230,7 @@ func main() {
 	md5Store.Save(*md5CacheFilename)
 }
 
-func ProcessArchive(archive PathAndVolume, md5Gen bool, md5Store *persistentstore.Store[string, string], exifRead bool, verbose bool) (map[string]Document, map[string]string) {
+func ProcessArchive(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
 	category := DetermineCategory((archive.Root))
 
 	switch category {
@@ -224,18 +239,18 @@ func ProcessArchive(archive PathAndVolume, md5Gen bool, md5Store *persistentstor
 	case AC_CSV:
 		fmt.Printf("Cannot process CSV category for %s\n", archive.Root)
 	case AC_Regular:
-		return ParseIndexHtml(archive.Path+"index.htm", archive.Volume, archive.Root, md5Gen, md5Store, exifRead, verbose)
+		return ParseIndexHtml(archive.Path+"index.htm", archive.Volume, archive.Root, md5Store, programFlags)
 	case AC_HTML:
-		return ProcessCategoryHTML(archive, md5Gen, md5Store, exifRead, verbose)
+		return ProcessCategoryHTML(archive, md5Store, programFlags)
 	case AC_Metadata:
-		return ProcessCategoryMetadata(archive, md5Gen, md5Store, exifRead, verbose)
+		return ProcessCategoryMetadata(archive, md5Store, programFlags)
 	case AC_Custom:
-		return ProcessCategoryCustom(archive, md5Gen, md5Store, exifRead, verbose)
+		return ProcessCategoryCustom(archive, md5Store, programFlags)
 	}
 	return nil, nil
 }
 
-func ProcessCategoryHTML(archive PathAndVolume, md5Gen bool, md5Store *persistentstore.Store[string, string], exifRead bool, verbose bool) (map[string]Document, map[string]string) {
+func ProcessCategoryHTML(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
 	// 1. Find all links in INDEX.HTM ... each one must point to HTML/XXXX.HTM; build a list of these targets
 	// 2. Verify that every file in HTML/ (regardless of filetype) appears in the list of targets
 	// process each .HTM file
@@ -259,7 +274,7 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Gen bool, md5Store *persisten
 		}
 	}
 
-	if verbose || true /*TOOD*/ {
+	if programFlags.Verbose || true /*TODO*/ {
 		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
 	}
 
@@ -318,8 +333,8 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Gen bool, md5Store *persisten
 
 	// For each link ... process it
 	for _, idx := range links {
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Gen, md5Store, exifRead, verbose)
-		if verbose {
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Store, programFlags)
+		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
 			}
@@ -329,7 +344,7 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Gen bool, md5Store *persisten
 			val, key_exists := documentsMap[k]
 			if key_exists {
 				if (v.Md5 != "") && (v.Md5 == val.Md5) {
-					if verbose {
+					if programFlags.Verbose {
 						fmt.Printf("WARNING(2a): Document [%s] already exists, identical to original %v (was %v)\n", k, v, val)
 					}
 				} else {
@@ -346,7 +361,7 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Gen bool, md5Store *persisten
 	return documentsMap, md5Map
 }
 
-func ProcessCategoryMetadata(archive PathAndVolume, md5Gen bool, md5Store *persistentstore.Store[string, string], exifRead bool, verbose bool) (map[string]Document, map[string]string) {
+func ProcessCategoryMetadata(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
 	// 1. Find all links in index.htm ... each one must point to HTML/XXXX.HTM; build a list of these targets
 	// 2. Verify that every file in metadata/ (regardless of filetype) appears in the list of targets
 	// process each .HTM file
@@ -370,7 +385,7 @@ func ProcessCategoryMetadata(archive PathAndVolume, md5Gen bool, md5Store *persi
 		}
 	}
 
-	if verbose || true /*TOOD*/ {
+	if programFlags.Verbose || true /*TOOD*/ {
 		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
 	}
 
@@ -429,8 +444,8 @@ func ProcessCategoryMetadata(archive PathAndVolume, md5Gen bool, md5Store *persi
 
 	// For each link ... process it
 	for _, idx := range links {
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Gen, md5Store, exifRead, verbose)
-		if verbose {
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Store, programFlags)
+		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
 			}
@@ -456,7 +471,7 @@ func ProcessCategoryMetadata(archive PathAndVolume, md5Gen bool, md5Store *persi
 // to further .htm files which also contain links to actual documents. Any .htm files in these further .htm files are not
 // processed as contains of links but as actual documents.
 
-func ProcessCategoryCustom(archive PathAndVolume, md5Gen bool, md5Store *persistentstore.Store[string, string], exifRead bool, verbose bool) (map[string]Document, map[string]string) {
+func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
 
 	// Read index.htm
 	indexPath := archive.Path + "index.htm"
@@ -483,7 +498,7 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Gen bool, md5Store *persist
 		}
 	}
 
-	if verbose || true /*TODO*/ {
+	if programFlags.Verbose || true /*TODO*/ {
 		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
 	}
 
@@ -498,8 +513,8 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Gen bool, md5Store *persist
 	// For each link ... process it
 	for _, idx := range links {
 		// Link in index.htm ends in .htm, so process it as a container of links to documents
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Gen, md5Store, exifRead, verbose)
-		if verbose {
+		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Store, programFlags)
+		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
 			}
@@ -619,10 +634,10 @@ func SubdirectoryExists(path string) bool {
 }
 
 // Each line of the indirect file consist of:
-// full-path-to-archive-root prefix [optional-full-path-to-root]
+//
+//	full-path-to-archive-root archive-name
 //
 // If full-path-to-HTML-index starts with a double quote, then it ends with one too.
-// The same would be true of optional-full-path-to-root, but that has not been implemented.
 // Otherwise there is exactly one space between the full-path and the prefix.
 func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 	var result []PathAndVolume
@@ -649,6 +664,8 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 			continue
 		}
 
+		// Break string into sections delimited by white space.
+		// However a sequence starting with a double quote will continue until another double quote is seen.
 		quotedString := re.FindAllString(line, -1)
 		if quotedString == nil {
 			return result, fmt.Errorf("indirect file line %d, cannot parse line: [%s])", lineNumber, line)
@@ -674,9 +691,9 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 // This function parses any such HTML file to produce a list of files that the index HTML links to
 // and the associated part number and title recorded in the index HTML.
 // If required then an MD5 checksum is generated and PDF metadata is extracted and recorded.
-func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5Store *persistentstore.Store[string, string], readExif bool, verbose bool) (map[string]Document, map[string]string) {
+func ParseIndexHtml(filename string, volume string, root string, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
 
-	if verbose {
+	if programFlags.Verbose {
 		fmt.Println("Processing index for ", filename)
 	}
 	path := filepath.Dir(filename)
@@ -704,25 +721,24 @@ func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5
 	if len(title_matches) == 0 {
 		log.Fatal("No matches found")
 	} else {
-		if verbose {
+		if programFlags.Verbose {
 			fmt.Println("Found", len(title_matches), "documents in HTML")
 		}
 		for _, match := range title_matches {
 			if len(match) != 4 {
 				log.Fatal("Bad match")
 			} else {
-				volumePath := match[1]
+				pathInVolumerelativetoHTML := match[1]
 				partNumber := strings.TrimSpace(match[2])
 				title := TidyDocumentTitle(match[3])
-				fullFilepath := path + "/" + volumePath
-				absolutePath, err := filepath.Abs(fullFilepath)
-				// fmt.Println("abs=", absolutePath, "root=", root)
-				modifiedVolumePath := absolutePath[len(root):]
+				fullFilepath := path + "/" + pathInVolumerelativetoHTML
+				absoluteFilepath, err := filepath.Abs(fullFilepath)
+				modifiedVolumePath := absoluteFilepath[len(root):]
 				if err != nil {
 					log.Fatal(err)
 				}
-				// fmt.Println("path=", path, "ffp=[", fullFilepath, "] abs =[", absolutePath, "]")
-				cifp := BuildCaseInsensitivePathGlob(absolutePath)
+
+				cifp := BuildCaseInsensitivePathGlob(absoluteFilepath)
 				candidateFile, err := filepath.Glob(cifp)
 				if err != nil {
 					log.Fatal(err)
@@ -734,37 +750,17 @@ func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5
 					log.Fatal("Too many files found:", candidateFile)
 				}
 
-				// If requested, find the file's MD5 sum
+				// If requested, find the file's MD5 checksum
 				md5Checksum := ""
-				if doMd5 {
-					md5Checksum, err = CalculateMd5Sum(candidateFile[0], md5Store, verbose)
+				if programFlags.GenerateMD5 {
+					md5Checksum, err = CalculateMd5Sum(candidateFile[0], md5Store, programFlags.Verbose)
 					if err != nil {
 						log.Fatal(err)
 					}
 				}
 
-				filestats, err := os.Stat(candidateFile[0])
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				pdfMetadata := PdfMetadata{}
-				if readExif {
-					pdfMetadata = pdfmetadata.ExtractPdfMetadata(candidateFile[0])
-				}
-
-				var newDocument Document
-				newDocument.Format = DetermineFileFormat(volumePath)
-				newDocument.Size = filestats.Size()
-				newDocument.Md5 = md5Checksum
-				newDocument.Title = strings.TrimSuffix(strings.TrimSpace(title), "\n")
-				newDocument.PubDate = "" // Not available anywhere
-				newDocument.PartNum = strings.TrimSpace(partNumber)
-				newDocument.PdfCreator = pdfMetadata.Creator
-				newDocument.PdfProducer = pdfMetadata.Producer
-				newDocument.PdfVersion = pdfMetadata.Format
-				newDocument.PdfModified = pdfMetadata.Modified
-				newDocument.Filepath = "file:///" + volume + "/" + modifiedVolumePath
+				documentRelativePath := "file:///" + volume + "/" + modifiedVolumePath
+				newDocument := BuildNewLocalDocument(title, partNumber, candidateFile[0], documentRelativePath, md5Checksum, programFlags.ReadEXIF)
 
 				key := md5Checksum
 				if key == "" {
@@ -792,11 +788,48 @@ func ParseIndexHtml(filename string, volume string, root string, doMd5 bool, md5
 		}
 	}
 
-	if verbose {
+	if programFlags.Verbose {
 		fmt.Printf("Returning %d documents after processing HTML in %s\n", len(documentsMap), filename)
 	}
 
 	return documentsMap, md5Map
+}
+
+// This function constructs a Document object with the specified properties.
+// Where properties can be derived from a local file, they will be (if permitted).
+// MD5 checksum is currently an exception to this and is always supplied.
+//
+// title:         document title
+// partNum:       document part number
+// filePath:      path to document
+// documentPath:  psudo
+// md5Checksum:   MD5 checksum (may be blank)
+// readExif:      true if PDF metadata should be extracted, false otherwise
+func BuildNewLocalDocument(title string, partNum string, filePath string, documentPath string, md5Checksum string, readExif bool) Document {
+	filestats, err := os.Stat(filePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pdfMetadata := PdfMetadata{}
+	if readExif {
+		pdfMetadata = pdfmetadata.ExtractPdfMetadata(filePath)
+	}
+
+	var newDocument Document
+	newDocument.Format = DetermineFileFormat(filePath)
+	newDocument.Size = filestats.Size()
+	newDocument.Md5 = md5Checksum
+	newDocument.Title = strings.TrimSuffix(strings.TrimSpace(title), "\n")
+	newDocument.PubDate = "" // Not available anywhere
+	newDocument.PartNum = strings.TrimSpace(partNum)
+	newDocument.PdfCreator = pdfMetadata.Creator
+	newDocument.PdfProducer = pdfMetadata.Producer
+	newDocument.PdfVersion = pdfMetadata.Format
+	newDocument.PdfModified = pdfMetadata.Modified
+	newDocument.Filepath = documentPath
+
+	return newDocument
 }
 
 // The index HTML files written to the various DVDs were tested on a Windows system, which performs case-insensitive
