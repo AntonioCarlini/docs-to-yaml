@@ -480,9 +480,12 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Stor
 		log.Fatal(err)
 	}
 
+	documentsMap := make(map[string]Document)
+	md5Map := make(map[string]string)
+
 	// Build a list of links found in index.htm
 	var links []string
-	re := regexp.MustCompile(`(?ms)<TD>\s*<A HREF=\"(.*?)\">\s+(.*?)<\/A>`)
+	re := regexp.MustCompile(`(?ms)<TD>\s*<A HREF=\"(.*?)\">\s+(.*?)<\/A>\s*?<TD>\s*(.*?)\s*</TR>`)
 	matches := re.FindAllStringSubmatch(string(bytes), -1)
 	if len(matches) == 0 {
 		log.Fatalf("No matches found in %s", indexPath)
@@ -490,10 +493,31 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Stor
 		for _, v := range matches {
 			target := v[1]
 			partNum := v[2]
+			title := v[3]
 			if strings.HasSuffix(target, ".htm") {
 				links = append(links, v[1])
 			} else {
-				fmt.Printf("Ignoring document [%s] p/n [%s]\n", target, partNum)
+				fullFilepath := archive.Path + target
+				absoluteFilepath, _ := filepath.Abs(fullFilepath)
+				modifiedVolumePath := absoluteFilepath[len(archive.Root):]
+				documentPath := "file:///" + "DEC_0040" + "/" + modifiedVolumePath
+
+				md5Checksum := ""
+				if programFlags.GenerateMD5 {
+					md5Checksum, err = CalculateMd5Sum(fullFilepath, md5Store, programFlags.Verbose)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+				newDoc := BuildNewLocalDocument(title, partNum, archive.Path+target, documentPath, md5Checksum, programFlags.ReadEXIF)
+				key := md5Checksum
+				if key == "" {
+					key = partNum + "~" + newDoc.Format
+					if key == "" {
+						key = title + "~" + newDoc.Format
+					}
+				}
+				documentsMap[key] = newDoc
 			}
 		}
 	}
@@ -502,15 +526,12 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Stor
 		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
 	}
 
-	documentsMap := make(map[string]Document)
-	md5Map := make(map[string]string)
-
 	if err != nil {
 		fmt.Println("Error walking the path:", err)
 		return documentsMap, md5Map
 	}
 
-	// For each link ... process it
+	// Process each .htm link
 	for _, idx := range links {
 		// Link in index.htm ends in .htm, so process it as a container of links to documents
 		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.Volume, archive.Root, md5Store, programFlags)
@@ -531,7 +552,6 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Stor
 		for k, v := range extraMd5Map {
 			md5Map[k] = v
 		}
-
 	}
 
 	return documentsMap, md5Map
