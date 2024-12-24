@@ -102,7 +102,6 @@ type PdfMetadata = pdfmetadata.PdfMetadata
 type PathAndVolume struct {
 	Path       string // Path to the root of the local archive
 	VolumeName string // Name of the local archive
-	Root       string // Path to the root of the local archive
 }
 
 type ProgamFlags struct {
@@ -112,8 +111,10 @@ type ProgamFlags struct {
 	ReadEXIF    bool // Read EXIF data from PDF files
 }
 
+// Implement an enum for ArchiveCategory
 type ArchiveCategory int
 
+// These are the legal ArchiveCategory enum values
 const (
 	AC_Undefined ArchiveCategory = iota
 	AC_CSV
@@ -123,6 +124,7 @@ const (
 	AC_Custom
 )
 
+// This turns ArchiveCategory enums into a text string
 func (ac ArchiveCategory) String() string {
 	return [...]string{"AC_Undefined", "AC_CSV", "AC_Regular", "AC_HTML", "AC_Metadata", "AC_Custom"}[ac]
 }
@@ -230,6 +232,9 @@ func main() {
 	md5Store.Save(*md5CacheFilename)
 }
 
+// ProcessArchive examines a single archive volume, determines the category it belongs to
+// and calls the appropriate processing function.
+// It returns a map of Document objects and a (seemingly superfluous) map of MD5 checksums
 func ProcessArchive(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
 	category := DetermineCategory((archive.Path))
 
@@ -501,7 +506,7 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Stor
 				absoluteFilepath, _ := filepath.Abs(fullFilepath)
 				modifiedVolumePath := absoluteFilepath[len(archive.Path):]
 				documentPath := "file:///" + "DEC_0040" + "/" + modifiedVolumePath
-				fmt.Println("full=[", fullFilepath, "] abs=[", absoluteFilepath, "] mod=[", modifiedVolumePath, "] a.P=[", archive.Path, "]")
+				// fmt.Println("full=[", fullFilepath, "] abs=[", absoluteFilepath, "] mod=[", modifiedVolumePath, "] a.P=[", archive.Path, "]")
 				md5Checksum := ""
 				if programFlags.GenerateMD5 {
 					md5Checksum, err = CalculateMd5Sum(fullFilepath, md5Store, programFlags.Verbose)
@@ -658,7 +663,7 @@ func SubdirectoryExists(path string) bool {
 //	full-path-to-archive-root archive-name
 //
 // If full-path-to-HTML-index starts with a double quote, then it ends with one too.
-// Otherwise there is exactly one space between the full-path and the prefix.
+// Note there must be exactly one space between the full-path and the prefix.
 func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 	var result []PathAndVolume
 
@@ -696,10 +701,10 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 		q0 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[0])
 		switch len(quotedString) {
 		case 2:
-			result = append(result, PathAndVolume{Path: q0, VolumeName: quotedString[1], Root: filepath.Dir(q0)})
-		case 3:
-			q2 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[2])
-			result = append(result, PathAndVolume{Path: q0, VolumeName: quotedString[1], Root: q2})
+			result = append(result, PathAndVolume{Path: q0, VolumeName: quotedString[1]})
+		case 0:
+		case 1:
+			return result, fmt.Errorf("indirect file line %d, too few elements: %d", lineNumber, len(quotedString))
 		default:
 			return result, fmt.Errorf("indirect file line %d, too many elements: %d", lineNumber, len(quotedString))
 		}
