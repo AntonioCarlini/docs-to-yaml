@@ -644,7 +644,7 @@ func SubdirectoryExists(path string) bool {
 
 // Each line of the indirect file consist of:
 //
-//	full-path-to-archive-root archive-name
+//	archive: full-path-to-archive-root archive-name
 //
 // If full-path-to-HTML-index starts with a double quote, then it ends with one too.
 // Note there must be exactly one space between the full-path and the prefix.
@@ -656,9 +656,16 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 		return result, err
 	}
 
+	defer file.Close()
+
+	regexes := map[*regexp.Regexp]func(string, int) (PathAndVolume, error){
+		regexp.MustCompile(`^\s*archive\s*:\s*(.*)$`):                IndirectFileHandlePathAndVolume,
+		regexp.MustCompile(`^\s*substitute-for-missing\s*:\s*(.*)$`): IndirectFileHandleMissingFileSubstitution,
+	}
+
 	lineNumber := 0
 	scanner := bufio.NewScanner(file)
-	re := regexp.MustCompile(`[^\s"]+|"([^"]*)"`)
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		lineNumber += 1
@@ -673,27 +680,64 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 			continue
 		}
 
-		// Break string into sections delimited by white space.
-		// However a sequence starting with a double quote will continue until another double quote is seen.
-		quotedString := re.FindAllString(line, -1)
-		if quotedString == nil {
-			return result, fmt.Errorf("indirect file line %d, cannot parse line: [%s])", lineNumber, line)
-		} else if len(quotedString) == 1 {
-			return result, fmt.Errorf("indirect file line %d, missing volume name (after %s)", lineNumber, quotedString[0])
+		// Iterate over the map of regexes to check if the line matches any known pattern
+		foundHandler := false
+		for regex, handler := range regexes {
+			// If the line matches the regex, call the corresponding handler
+			if match := regex.FindStringSubmatch(line); match != nil {
+				// fmt.Printf("Found good line %d [%s] in indirect file %s\n", lineNumber, line, indirectFile)
+				foundHandler = true
+
+				item, err := handler(match[1], lineNumber)
+				if err == nil {
+					result = append(result, item)
+				}
+
+				break
+			}
 		}
 
-		q0 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[0])
-		switch len(quotedString) {
-		case 2:
-			result = append(result, PathAndVolume{Path: q0, VolumeName: quotedString[1]})
-		case 0:
-		case 1:
-			return result, fmt.Errorf("indirect file line %d, too few elements: %d", lineNumber, len(quotedString))
-		default:
-			return result, fmt.Errorf("indirect file line %d, too many elements: %d", lineNumber, len(quotedString))
+		if !foundHandler {
+			fmt.Printf("Failed to understand line %d [%s] in indirect file %s\n", lineNumber, line, indirectFile)
 		}
 	}
+
 	return result, nil
+}
+
+func IndirectFileHandlePathAndVolume(line string, lineNumber int) (PathAndVolume, error) {
+	fmt.Printf("IndirectFileHandlePathAndVolume(%s)\n", line)
+	var result PathAndVolume
+
+	re := regexp.MustCompile(`[^\s"]+|"([^"]*)"`)
+
+	// Break string into sections delimited by white space.
+	// However a sequence starting with a double quote will continue until another double quote is seen.
+	quotedString := re.FindAllString(line, -1)
+	if quotedString == nil {
+		return result, fmt.Errorf("indirect file line %d, cannot parse line: [%s])", lineNumber, line)
+	} else if len(quotedString) == 1 {
+		return result, fmt.Errorf("indirect file line %d, missing volume name (after %s)", lineNumber, quotedString[0])
+	}
+
+	q0 := StripOptionalLeadingAndTrailingDoubleQuotes(quotedString[0])
+	switch len(quotedString) {
+	case 2:
+		return PathAndVolume{Path: q0, VolumeName: quotedString[1]}, nil
+	case 0:
+	case 1:
+		return result, fmt.Errorf("indirect file line %d, too few elements: %d", lineNumber, len(quotedString))
+	default:
+		return result, fmt.Errorf("indirect file line %d, too many elements: %d", lineNumber, len(quotedString))
+	}
+
+	return result, fmt.Errorf("indirect file line %d, too many elements: %d", lineNumber, len(quotedString))
+}
+
+func IndirectFileHandleMissingFileSubstitution(line string, lineNumber int) (PathAndVolume, error) {
+	fmt.Println("IndirectFileHandleMissingFileSubstitution(%s)\n", line)
+	var result PathAndVolume
+	return result, fmt.Errorf("indirect file line %d, too few elements: %d", 0, len(line /*quotedString*/))
 }
 
 // The index HTML files written to the DVDs are almost all in one of two (similar) formats.
