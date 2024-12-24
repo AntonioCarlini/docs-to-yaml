@@ -5,20 +5,20 @@ This currently covers the collection of computer-related manuals, mostly produce
 
 ## Overview ##
 
-| Directory              | Notes
-|------------------------|-------------------------------------------------------------------------------------------|
-| bin/                   | output files
-| bitsavers-to-yaml/     | produces bin/bitsavers.yaml, describing documents on bitsavers
-| csv/                   | ?
-| data/                  | input files
-| file-tree-to-yaml/     | ?
-| find-locally-unique/   | ?
-| first-pass/            | ?
-| internal/              | internal go helpers
-| local-to-yaml/         | ?
-| manx-to-yaml/          | produces bin/manx.yaml, describing historic data from manx
-| process-digital-SOC/   | helpers to produce CSV files for SOC files found on www.digital.com via archive.org
-| vaxhaven-to-yaml/      | produces bin/vaxhaven.yaml, describing documents on bitsavers
+| Directory                      | Notes
+|--------------------------------|-------------------------------------------------------------------------------------------|
+| bin/                           | output files
+| bitsavers-to-yaml/             | produces bin/bitsavers.yaml, describing documents on bitsavers
+| csv/                           | ?
+| data/                          | input files
+| file-tree-to-yaml/             | ?
+| find-locally-unique/           | ?
+| first-pass/                    | ?
+| internal/                      | internal go helpers
+| local-archive-to-yaml/         | ?
+| manx-to-yaml/                  | produces bin/manx.yaml, describing historic data from manx
+| process-digital-SOC/           | helpers to produce CSV files for SOC files found on www.digital.com via archive.org
+| vaxhaven-to-yaml/              | produces bin/vaxhaven.yaml, describing documents on bitsavers
 
 ## Infrastructure Files ##
 
@@ -51,7 +51,7 @@ It takes a copy of _data/bitsavers-IndexByDate.txt_ that has been downloaded fro
 
 Generates a YAML file that describes all files under a specific root. This should help automate producing new archive discs.
 
-### local-to-yaml
+### local-archive-to-yaml
 
 This program examines a specified set of directories that contain copies of CD-R and DVR-R copies or images that contain relevant manuals that I have collected over the years and builds up some YAML files describing the contents.
 The intention is to combine this with other YAML data about various sites on the internet to help me find scans I have that are not available on any of the internet repositories that currently exist.
@@ -71,4 +71,5 @@ _bin/md5.store_ neither used nor updated.
 ### yaml-to-csv ###
 
 This program takes a set of YAML files containing document details and produces a CSV file that aggregates all those documents.  
-Not all of the data for each document is written, but title, part number and location information are included.s
+Not all of the data for each document is written, but title, part number and location information are included.
+
