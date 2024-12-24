@@ -177,7 +177,6 @@ func main() {
 	}
 
 	documentsMap := make(map[string]Document)
-	md5Map := make(map[string]string)
 
 	filepathsAndVolumes, err := ParseIndirectFile(*indirectFile)
 	if err != nil {
@@ -185,7 +184,7 @@ func main() {
 	}
 
 	for _, item := range filepathsAndVolumes {
-		extraDocumentsMap, extraMd5Map := ProcessArchive(item, md5Store, programFlags)
+		extraDocumentsMap := ProcessArchive(item, md5Store, programFlags)
 		if *verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -207,9 +206,6 @@ func main() {
 				}
 			}
 			documentsMap[key] = v
-		}
-		for k, v := range extraMd5Map {
-			md5Map[k] = v
 		}
 	}
 
@@ -234,8 +230,8 @@ func main() {
 
 // ProcessArchive examines a single archive volume, determines the category it belongs to
 // and calls the appropriate processing function.
-// It returns a map of Document objects and a (seemingly superfluous) map of MD5 checksums
-func ProcessArchive(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
+// It returns a map of Document objects that have been found.
+func ProcessArchive(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 	category := DetermineCategory((archive.Path))
 
 	switch category {
@@ -252,10 +248,10 @@ func ProcessArchive(archive PathAndVolume, md5Store *persistentstore.Store[strin
 	case AC_Custom:
 		return ProcessCategoryCustom(archive, md5Store, programFlags)
 	}
-	return nil, nil
+	return nil
 }
 
-func ProcessCategoryHTML(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
+func ProcessCategoryHTML(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 	// 1. Find all links in INDEX.HTM ... each one must point to HTML/XXXX.HTM; build a list of these targets
 	// 2. Verify that every file in HTML/ (regardless of filetype) appears in the list of targets
 	// process each .HTM file
@@ -324,11 +320,10 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Store *persistentstore.Store[
 	})
 
 	documentsMap := make(map[string]Document)
-	md5Map := make(map[string]string)
 
 	if err != nil {
 		fmt.Println("Error walking the path:", err)
-		return documentsMap, md5Map
+		return documentsMap
 	}
 
 	// Report whether any directories were found
@@ -338,7 +333,7 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Store *persistentstore.Store[
 
 	// For each link ... process it
 	for _, idx := range links {
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
+		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
 		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -358,15 +353,12 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Store *persistentstore.Store[
 			}
 			documentsMap[k] = v
 		}
-		for k, v := range extraMd5Map {
-			md5Map[k] = v
-		}
 	}
 
-	return documentsMap, md5Map
+	return documentsMap
 }
 
-func ProcessCategoryMetadata(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
+func ProcessCategoryMetadata(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 	// 1. Find all links in index.htm ... each one must point to HTML/XXXX.HTM; build a list of these targets
 	// 2. Verify that every file in metadata/ (regardless of filetype) appears in the list of targets
 	// process each .HTM file
@@ -435,11 +427,10 @@ func ProcessCategoryMetadata(archive PathAndVolume, md5Store *persistentstore.St
 	})
 
 	documentsMap := make(map[string]Document)
-	md5Map := make(map[string]string)
 
 	if err != nil {
 		fmt.Println("Error walking the path:", err)
-		return documentsMap, md5Map
+		return documentsMap
 	}
 
 	// Report whether any directories were found
@@ -449,7 +440,7 @@ func ProcessCategoryMetadata(archive PathAndVolume, md5Store *persistentstore.St
 
 	// For each link ... process it
 	for _, idx := range links {
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
+		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
 		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -464,19 +455,16 @@ func ProcessCategoryMetadata(archive PathAndVolume, md5Store *persistentstore.St
 			}
 			documentsMap[k] = v
 		}
-		for k, v := range extraMd5Map {
-			md5Map[k] = v
-		}
 	}
 
-	return documentsMap, md5Map
+	return documentsMap
 }
 
 // This function processes the one local archive that has an index.htm that both contains links to actual documents but also
 // to further .htm files which also contain links to actual documents. Any .htm files in these further .htm files are not
 // processed as contains of links but as actual documents.
 
-func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
+func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 
 	// Read index.htm
 	indexPath := archive.Path + "index.htm"
@@ -486,7 +474,6 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Stor
 	}
 
 	documentsMap := make(map[string]Document)
-	md5Map := make(map[string]string)
 
 	// Build a list of links found in index.htm
 	var links []string
@@ -533,13 +520,13 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Stor
 
 	if err != nil {
 		fmt.Println("Error walking the path:", err)
-		return documentsMap, md5Map
+		return documentsMap
 	}
 
 	// Process each .htm link
 	for _, idx := range links {
 		// Link in index.htm ends in .htm, so process it as a container of links to documents
-		extraDocumentsMap, extraMd5Map := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
+		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
 		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -554,12 +541,9 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Stor
 			}
 			documentsMap[k] = v
 		}
-		for k, v := range extraMd5Map {
-			md5Map[k] = v
-		}
 	}
 
-	return documentsMap, md5Map
+	return documentsMap
 }
 
 // Given the path to the root of a document archive, this function works out the
@@ -716,7 +700,7 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 // This function parses any such HTML file to produce a list of files that the index HTML links to
 // and the associated part number and title recorded in the index HTML.
 // If required then an MD5 checksum is generated and PDF metadata is extracted and recorded.
-func ParseIndexHtml(filename string, volume string, root string, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) (map[string]Document, map[string]string) {
+func ParseIndexHtml(filename string, volume string, root string, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 
 	if programFlags.Verbose {
 		fmt.Println("Processing index for ", filename)
@@ -728,7 +712,6 @@ func ParseIndexHtml(filename string, volume string, root string, md5Store *persi
 	}
 
 	documentsMap := make(map[string]Document)
-	md5Map := make(map[string]string)
 
 	// Each entry we care about looks like this:
 	//	<TR VALIGN=TOP>
@@ -817,7 +800,7 @@ func ParseIndexHtml(filename string, volume string, root string, md5Store *persi
 		fmt.Printf("Returning %d documents after processing HTML in %s\n", len(documentsMap), filename)
 	}
 
-	return documentsMap, md5Map
+	return documentsMap
 }
 
 // This function constructs a Document object with the specified properties.
