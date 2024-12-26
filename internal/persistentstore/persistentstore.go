@@ -65,27 +65,27 @@ func (Store[K, T]) Init(storeFilename string, createIfMissing bool, verbose bool
 	}
 
 	if verbose {
-		fmt.Printf("Initial  number of store entries: %d\n", len(store.Data))
+		fmt.Printf("Initial number of store entries: %d, store address: %p\n", len(store.Data), store)
 	}
 	return store, nil
 }
 
 // Performs a lookup in the store and retrieves the data (if any) stored against the given key.
 // The return mimics that returned by a map, i.e. the value and a boolean true if the key exists.
-func (thing Store[K, T]) Lookup(key K) (T, bool) {
+func (thing *Store[K, T]) Lookup(key K) (T, bool) {
 	value, found := thing.Data[key]
 	return value, found
 }
 
 // Returns true if the store has been modified and false otherwise
-func (thing Store[K, T]) IsModified() bool {
+func (thing *Store[K, T]) IsModified() bool {
 	return thing.Dirty
 }
 
 // Updates the data stored against the specified key.
 //
 // Note that this update happens even if there is already data stored against the specified key.
-func (thing Store[K, T]) Update(key K, data T) {
+func (thing *Store[K, T]) Update(key K, data T) {
 	thing.Data[key] = data
 	thing.Dirty = true
 }
@@ -93,9 +93,9 @@ func (thing Store[K, T]) Update(key K, data T) {
 // Save the stored data, if it has changed.
 //
 // Data is stored as YAML in the specified file.
-func (thing Store[K, T]) Save(filename string) {
+func (thing *Store[K, T]) Save(filename string) {
 	if thing.Active && thing.Dirty {
-		fmt.Println("Writing **new** MD5 cache")
+		fmt.Println("Writing **new** Store")
 		data, err := yaml.Marshal(thing.Data)
 		if err != nil {
 			log.Fatal("Bad Store.Data: ", err)
