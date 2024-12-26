@@ -86,6 +86,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"unicode"
@@ -103,6 +104,24 @@ type PathAndVolume struct {
 	Path       string // Path to the root of the local archive
 	VolumeName string // Name of the local archive
 }
+
+// MissingFile represents the relative path of a missing file.
+type MissingFile struct {
+	Filepath string
+}
+
+// SubstitueFile represents a filename that was incorrectly typed and the file name that should have been typed
+type SubstituteFile struct {
+	MistypedFilepath string // This is the incorrect filepath (relative to the archive volume root) as entered in an HTML file
+	ActualFilepath   string // This is the correct filepath (relative to the archive volume root) that should have been in that HTML file
+}
+
+type FileHandlingExceptions struct {
+	FileSubstitutes []SubstituteFile
+	MissingFiles    []MissingFile
+}
+
+type IndirectFileEntry interface{}
 
 type ProgamFlags struct {
 	Statistics  bool // display statistics
@@ -178,35 +197,51 @@ func main() {
 
 	documentsMap := make(map[string]Document)
 
-	filepathsAndVolumes, err := ParseIndirectFile(*indirectFile)
+	indirectFileEntry, err := ParseIndirectFile(*indirectFile)
 	if err != nil {
 		log.Fatalf("Failed to parse indirect file: %s", err)
 	}
 
-	for _, item := range filepathsAndVolumes {
-		extraDocumentsMap := ProcessArchive(item, md5Store, programFlags)
-		if *verbose {
-			for i, doc := range extraDocumentsMap {
-				fmt.Println("doc", i, "=>", doc)
+	var fileExceptions FileHandlingExceptions
+
+	for _, item := range indirectFileEntry {
+		switch t := item.(type) {
+		case PathAndVolume:
+			extraDocumentsMap := ProcessArchive(item.(PathAndVolume), fileExceptions, md5Store, programFlags)
+			if *verbose {
+				for i, doc := range extraDocumentsMap {
+					fmt.Println("doc", i, "=>", doc)
+				}
+				fmt.Println("found ", len(extraDocumentsMap), "new documents")
 			}
-			fmt.Println("found ", len(extraDocumentsMap), "new documents")
+
+			for k, v := range extraDocumentsMap {
+				key := k
+				val, key_exists := documentsMap[k]
+				if key_exists {
+					if (v.Md5 != "") && (v.Md5 == val.Md5) {
+						if *verbose {
+							fmt.Printf("WARNING(1a): Document [%s] already exists, identical to original %v (was %v)\n", k, v, val)
+						}
+					} else {
+						fmt.Printf("WARNING(1): Document [%s] in %s already exists (was %s)\n", k, v.Filepath, val.Filepath)
+						key = k + "DUPLICATE-of-" + val.Filepath
+					}
+				}
+				documentsMap[key] = v
+			}
+		case SubstituteFile:
+			fmt.Printf("Substitute type: %v\n", reflect.TypeOf(t))
+			fileExceptions.FileSubstitutes = append(fileExceptions.FileSubstitutes, item.(SubstituteFile))
+		case MissingFile:
+			fmt.Printf("Missing type: %v\n", reflect.TypeOf(t))
+			fileExceptions.MissingFiles = append(fileExceptions.MissingFiles, item.(MissingFile))
+		default:
+			// Handle unknown types
+			fmt.Printf("Unknown type: %v\n", reflect.TypeOf(t))
 		}
 
-		for k, v := range extraDocumentsMap {
-			key := k
-			val, key_exists := documentsMap[k]
-			if key_exists {
-				if (v.Md5 != "") && (v.Md5 == val.Md5) {
-					if *verbose {
-						fmt.Printf("WARNING(1a): Document [%s] already exists, identical to original %v (was %v)\n", k, v, val)
-					}
-				} else {
-					fmt.Printf("WARNING(1): Document [%s] in %s already exists (was %s)\n", k, v.Filepath, val.Filepath)
-					key = k + "DUPLICATE-of-" + val.Filepath
-				}
-			}
-			documentsMap[key] = v
-		}
+		// TOOD: this should be a subfunction?
 	}
 
 	if programFlags.Statistics {
@@ -231,7 +266,7 @@ func main() {
 // ProcessArchive examines a single archive volume, determines the category it belongs to
 // and calls the appropriate processing function.
 // It returns a map of Document objects that have been found.
-func ProcessArchive(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
+func ProcessArchive(archive PathAndVolume, fileExceptions FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 	category := DetermineCategory((archive.Path))
 
 	switch category {
@@ -240,18 +275,18 @@ func ProcessArchive(archive PathAndVolume, md5Store *persistentstore.Store[strin
 	case AC_CSV:
 		fmt.Printf("Cannot process CSV category for %s\n", archive.Path)
 	case AC_Regular:
-		return ParseIndexHtml(archive.Path+"index.htm", archive.VolumeName, archive.Path, md5Store, programFlags)
+		return ParseIndexHtml(archive.Path+"index.htm", archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
 	case AC_HTML:
-		return ProcessCategoryHTML(archive, md5Store, programFlags)
+		return ProcessCategoryHTML(archive, fileExceptions, md5Store, programFlags)
 	case AC_Metadata:
-		return ProcessCategoryMetadata(archive, md5Store, programFlags)
+		return ProcessCategoryMetadata(archive, fileExceptions, md5Store, programFlags)
 	case AC_Custom:
-		return ProcessCategoryCustom(archive, md5Store, programFlags)
+		return ProcessCategoryCustom(archive, fileExceptions, md5Store, programFlags)
 	}
 	return nil
 }
 
-func ProcessCategoryHTML(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
+func ProcessCategoryHTML(archive PathAndVolume, fileExceptions FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 	// 1. Find all links in INDEX.HTM ... each one must point to HTML/XXXX.HTM; build a list of these targets
 	// 2. Verify that every file in HTML/ (regardless of filetype) appears in the list of targets
 	// process each .HTM file
@@ -333,7 +368,7 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Store *persistentstore.Store[
 
 	// For each link ... process it
 	for _, idx := range links {
-		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
+		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
 		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -358,7 +393,7 @@ func ProcessCategoryHTML(archive PathAndVolume, md5Store *persistentstore.Store[
 	return documentsMap
 }
 
-func ProcessCategoryMetadata(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
+func ProcessCategoryMetadata(archive PathAndVolume, fileExceptions FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 	// 1. Find all links in index.htm ... each one must point to HTML/XXXX.HTM; build a list of these targets
 	// 2. Verify that every file in metadata/ (regardless of filetype) appears in the list of targets
 	// process each .HTM file
@@ -440,7 +475,7 @@ func ProcessCategoryMetadata(archive PathAndVolume, md5Store *persistentstore.St
 
 	// For each link ... process it
 	for _, idx := range links {
-		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
+		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
 		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -464,7 +499,7 @@ func ProcessCategoryMetadata(archive PathAndVolume, md5Store *persistentstore.St
 // to further .htm files which also contain links to actual documents. Any .htm files in these further .htm files are not
 // processed as contains of links but as actual documents.
 
-func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
+func ProcessCategoryCustom(archive PathAndVolume, fileExceptions FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 
 	// Read index.htm
 	indexPath := archive.Path + "index.htm"
@@ -526,7 +561,7 @@ func ProcessCategoryCustom(archive PathAndVolume, md5Store *persistentstore.Stor
 	// Process each .htm link
 	for _, idx := range links {
 		// Link in index.htm ends in .htm, so process it as a container of links to documents
-		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, md5Store, programFlags)
+		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
 		if programFlags.Verbose {
 			for i, doc := range extraDocumentsMap {
 				fmt.Println("doc", i, "=>", doc)
@@ -648,8 +683,8 @@ func SubdirectoryExists(path string) bool {
 //
 // If full-path-to-HTML-index starts with a double quote, then it ends with one too.
 // Note there must be exactly one space between the full-path and the prefix.
-func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
-	var result []PathAndVolume
+func ParseIndirectFile(indirectFile string) ([]IndirectFileEntry, error) {
+	var result []IndirectFileEntry
 
 	file, err := os.Open(indirectFile)
 	if err != nil {
@@ -658,9 +693,10 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 
 	defer file.Close()
 
-	regexes := map[*regexp.Regexp]func(string, int) (PathAndVolume, error){
-		regexp.MustCompile(`^\s*archive\s*:\s*(.*)$`):                IndirectFileHandlePathAndVolume,
-		regexp.MustCompile(`^\s*substitute-for-missing\s*:\s*(.*)$`): IndirectFileHandleMissingFileSubstitution,
+	regexes := map[*regexp.Regexp]func(string, int) (interface{}, error){
+		regexp.MustCompile(`^\s*archive\s*:\s*(.*)$`):            IndirectFileProcessPathAndVolume,
+		regexp.MustCompile(`^\s*incorrect-filepath\s*:\s*(.*)$`): IndirectFileProcessSubstituteFilepath,
+		regexp.MustCompile(`^\s*truly-missing-file\s*:\s*(.*)$`): IndirectFileProcessMissingFile,
 	}
 
 	lineNumber := 0
@@ -690,7 +726,17 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 
 				item, err := handler(match[1], lineNumber)
 				if err == nil {
-					result = append(result, item)
+					switch v := item.(type) {
+					case PathAndVolume:
+						result = append(result, item.(PathAndVolume))
+					case SubstituteFile:
+						result = append(result, item.(SubstituteFile))
+					case MissingFile:
+						result = append(result, item.(MissingFile))
+					default:
+						// Handle unknown types
+						fmt.Printf("Unknown type: %v\n", reflect.TypeOf(v))
+					}
 				}
 
 				break
@@ -705,7 +751,7 @@ func ParseIndirectFile(indirectFile string) ([]PathAndVolume, error) {
 	return result, nil
 }
 
-func IndirectFileHandlePathAndVolume(line string, lineNumber int) (PathAndVolume, error) {
+func IndirectFileProcessPathAndVolume(line string, lineNumber int) (interface{}, error) {
 	fmt.Printf("IndirectFileHandlePathAndVolume(%s)\n", line)
 	var result PathAndVolume
 
@@ -734,17 +780,42 @@ func IndirectFileHandlePathAndVolume(line string, lineNumber int) (PathAndVolume
 	return result, fmt.Errorf("indirect file line %d, too many elements: %d", lineNumber, len(quotedString))
 }
 
-func IndirectFileHandleMissingFileSubstitution(line string, lineNumber int) (PathAndVolume, error) {
-	fmt.Println("IndirectFileHandleMissingFileSubstitution(%s)\n", line)
-	var result PathAndVolume
-	return result, fmt.Errorf("indirect file line %d, too few elements: %d", 0, len(line /*quotedString*/))
+// This function is called to indicate that a specific filepath refers to a file that is expected not to exist.
+// It is only valid for the next volume.
+func IndirectFileProcessMissingFile(text string, lineNumber int) (interface{}, error) {
+	fmt.Printf("IndirectFileProcessMissingFile(%s)\n", text)
+
+	var result MissingFile
+	result.Filepath = text
+	return result, nil
+}
+
+func IndirectFileProcessSubstituteFilepath(text string, lineNumber int) (interface{}, error) {
+	var result SubstituteFile
+
+	re := regexp.MustCompile(`^\s*(.*?)\s+substitute-with\s+(.*)\s*$`)
+	match := re.FindStringSubmatch(text)
+	if match == nil {
+		fmt.Printf("MISMATCH0: IndirectFileProcessSubstituteFilepath(%s, %d)\n", text, lineNumber)
+		return result, nil
+	} else if len(match) != 3 {
+		fmt.Printf("MISMATCH%d: IndirectFileProcessSubstituteFilepath(%s, %d)\n", len(match), text, lineNumber)
+		return result, nil
+	}
+	// Here, exactly the right number of matches
+	result.MistypedFilepath = match[1]
+	result.ActualFilepath = match[2]
+
+	fmt.Printf("FOUND: IndirectFileProcessSubstituteFilepath(%s, %d): %v\n", text, lineNumber, result)
+
+	return result, nil
 }
 
 // The index HTML files written to the DVDs are almost all in one of two (similar) formats.
 // This function parses any such HTML file to produce a list of files that the index HTML links to
 // and the associated part number and title recorded in the index HTML.
 // If required then an MD5 checksum is generated and PDF metadata is extracted and recorded.
-func ParseIndexHtml(filename string, volume string, root string, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
+func ParseIndexHtml(filename string, volume string, root string, fileExceptions FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 
 	if programFlags.Verbose {
 		fmt.Println("Processing index for ", filename)
@@ -797,6 +868,7 @@ func ParseIndexHtml(filename string, volume string, root string, md5Store *persi
 				}
 				if len(candidateFile) == 0 {
 					log.Printf("MISSING file: %s linked from %s\n", fullFilepath, filename)
+					// TODO here look for an exception
 					continue
 				} else if len(candidateFile) != 1 {
 					log.Fatal("Too many files found:", candidateFile)
