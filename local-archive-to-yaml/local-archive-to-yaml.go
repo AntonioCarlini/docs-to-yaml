@@ -527,7 +527,7 @@ func ProcessCategoryCustom(archive PathAndVolume, fileExceptions *FileHandlingEx
 				// fmt.Println("full=[", fullFilepath, "] abs=[", absoluteFilepath, "] mod=[", modifiedVolumePath, "] a.P=[", archive.Path, "]")
 				md5Checksum := ""
 				if programFlags.GenerateMD5 {
-					md5Checksum, err = CalculateMd5Sum(fullFilepath, md5Store, programFlags.Verbose)
+					md5Checksum, err = CalculateMd5Sum(archive.VolumeName+"//"+modifiedVolumePath, fullFilepath, md5Store, programFlags.Verbose)
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -846,7 +846,7 @@ func ParseIndexHtml(filename string, volume string, root string, fileExceptions 
 				title := TidyDocumentTitle(match[3])
 				fullFilepath := path + "/" + pathInVolumerelativetoHTML
 				absoluteFilepath, err := filepath.Abs(fullFilepath)
-				modifiedVolumePath := absoluteFilepath[len(root):]
+				modifiedVolumePathInHTML := absoluteFilepath[len(root):]
 				if err != nil {
 					log.Fatal(err)
 				}
@@ -861,24 +861,23 @@ func ParseIndexHtml(filename string, volume string, root string, fileExceptions 
 					// See if the missing file has a substitute filepath, and if so try using that
 					fileFound := false
 					for idx, v := range fileExceptions.FileSubstitutes {
-						if v.MistypedFilepath == modifiedVolumePath {
+						if v.MistypedFilepath == modifiedVolumePathInHTML {
 							if programFlags.Verbose {
-								fmt.Printf("Found in mistyping [%s] in fileExceptions and swapping for %s\n", modifiedVolumePath, v.ActualFilepath)
+								fmt.Printf("Found in mistyping [%s] in fileExceptions and swapping for %s\n", modifiedVolumePathInHTML, v.ActualFilepath)
 							}
 							fullFilepath = path + "/" + v.ActualFilepath
 							absoluteFilepath, _ = filepath.Abs(fullFilepath)
-							modifiedVolumePath = absoluteFilepath[len(root):]
 							cifp := BuildCaseInsensitivePathGlob(absoluteFilepath)
 							candidateFile, err = filepath.Glob(cifp)
 							if err != nil {
 								log.Fatal(err)
 							}
 							if len(candidateFile) == 0 {
-								fmt.Printf("WARNING: Found mistyping [%s] in fileExceptions but swapping for %s (%s), file still not found\n", modifiedVolumePath, v.ActualFilepath, fullFilepath)
+								fmt.Printf("WARNING: Found mistyping [%s] in fileExceptions but swapping for %s (%s), file still not found\n", modifiedVolumePathInHTML, v.ActualFilepath, fullFilepath)
 								continue
 							} else {
 								if programFlags.Verbose {
-									fmt.Printf("File found after fixing bad path [%s]  to be %s (%s) in %s\n", modifiedVolumePath, v.ActualFilepath, fullFilepath, filename)
+									fmt.Printf("File found after fixing bad path [%s]  to be %s (%s) in %s\n", modifiedVolumePathInHTML, v.ActualFilepath, fullFilepath, filename)
 								}
 								fileFound = true
 								// Swap the last element into the slot occupied by the now used and to-be-discarded element, then shorten by one
@@ -896,7 +895,7 @@ func ParseIndexHtml(filename string, volume string, root string, fileExceptions 
 					if !fileFound {
 
 						for idx, v := range fileExceptions.MissingFiles {
-							if v.Filepath == modifiedVolumePath {
+							if v.Filepath == modifiedVolumePathInHTML {
 								fileTrulyMissing = false
 								fileExcLen := len(fileExceptions.MissingFiles)
 								fileExceptions.MissingFiles[idx] = fileExceptions.MissingFiles[fileExcLen-1]
@@ -912,7 +911,7 @@ func ParseIndexHtml(filename string, volume string, root string, fileExceptions 
 					// If the missing file is still missing (i.e. not found even if a substitue is available) then skip to avoid generating a document entry
 					if !fileFound {
 						if fileTrulyMissing {
-							log.Printf("MISSING file: %s [%s] linked from %s\n", fullFilepath, modifiedVolumePath, filename)
+							log.Printf("MISSING file: %s [%s] linked from %s\n", fullFilepath, modifiedVolumePathInHTML, filename)
 						}
 						continue
 					}
@@ -921,10 +920,13 @@ func ParseIndexHtml(filename string, volume string, root string, fileExceptions 
 					log.Fatal("Too many files found:", candidateFile)
 				}
 
+				// Find the actal pathname withing the volume rather than whatever might have been specified in an HTML file 9which may be the wrong case)
+				modifiedVolumePath := candidateFile[0][len(root):]
+
 				// If requested, find the file's MD5 checksum
 				md5Checksum := ""
 				if programFlags.GenerateMD5 {
-					md5Checksum, err = CalculateMd5Sum(candidateFile[0], md5Store, programFlags.Verbose)
+					md5Checksum, err = CalculateMd5Sum(volume+"//"+modifiedVolumePath, candidateFile[0], md5Store, programFlags.Verbose)
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -1067,26 +1069,26 @@ func TidyDocumentTitle(untidyTitle string) string {
 // Return the MD5 sum for the specified file.
 // Start by looking up the filename (path) in the cache and return a pre-computed MD5 sum if found.
 // Otherwise, compute the MD5 sum, add the entry to the cache, mark the cache as dirty and return the computed MD5 sum.
-func CalculateMd5Sum(filename string, md5Store *persistentstore.Store[string, string], verbose bool) (string, error) {
+func CalculateMd5Sum(filenameInCache string, fullFilepath string, md5Store *persistentstore.Store[string, string], verbose bool) (string, error) {
 
 	// Lookup the filename (path) in the cache; if found report that as the MD5 sum
-	if md5, found := md5Store.Lookup(filename); found {
+	if md5, found := md5Store.Lookup(filenameInCache); found {
 		if verbose {
-			fmt.Printf("MD5 Store: Found %s for %s\n", md5, filename)
+			fmt.Printf("MD5 Store: Found %s for %s\n", md5, filenameInCache)
 		}
 		return md5, nil
 	}
 
 	// The filename (path) is not in the cache.
 	// Generate the MD5 sum, add the value to the cache and mark the cache as Dirty
-	fileBytes, err := os.ReadFile(filename)
+	fileBytes, err := os.ReadFile(fullFilepath)
 	if err != nil {
 		return "", err
 	}
 	md5Hash := md5.Sum(fileBytes)
 	md5Checksum := hex.EncodeToString(md5Hash[:])
-	md5Store.Update(filename, md5Checksum)
-	fmt.Printf("MD5 Store: wrote %s for %s\n", md5Checksum, filename)
+	md5Store.Update(filenameInCache, md5Checksum)
+	fmt.Printf("MD5 Store: wrote %s for [%s] (full path %s)\n", md5Checksum, filenameInCache, fullFilepath)
 	return md5Checksum, nil
 }
 
