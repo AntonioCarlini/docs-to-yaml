@@ -230,6 +230,9 @@ func main() {
 				}
 				documentsMap[key] = v
 			}
+			if programFlags.Statistics {
+				fmt.Printf("Found %4d documents in volume %s\n", len(extraDocumentsMap), item.(PathAndVolume).VolumeName)
+			}
 		case SubstituteFile:
 			fileExceptions.FileSubstitutes = append(fileExceptions.FileSubstitutes, item.(SubstituteFile))
 		case MissingFile:
@@ -306,7 +309,7 @@ func ProcessCategoryHTML(archive PathAndVolume, fileExceptions *FileHandlingExce
 		}
 	}
 
-	if programFlags.Statistics {
+	if programFlags.Verbose {
 		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
 	}
 
@@ -413,7 +416,7 @@ func ProcessCategoryMetadata(archive PathAndVolume, fileExceptions *FileHandling
 		}
 	}
 
-	if programFlags.Statistics {
+	if programFlags.Verbose {
 		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
 	}
 
@@ -545,7 +548,7 @@ func ProcessCategoryCustom(archive PathAndVolume, fileExceptions *FileHandlingEx
 		}
 	}
 
-	if programFlags.Statistics {
+	if programFlags.Verbose {
 		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
 	}
 
@@ -961,7 +964,7 @@ func ParseIndexHtml(filename string, volume string, root string, fileExceptions 
 		}
 	}
 
-	if programFlags.Statistics {
+	if programFlags.Verbose {
 		fmt.Printf("Returning %d documents after processing HTML in %s\n", len(documentsMap), filename)
 	}
 
