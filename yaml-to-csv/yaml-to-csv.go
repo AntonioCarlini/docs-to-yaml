@@ -61,30 +61,33 @@ func main() {
 		}
 
 		if *verbose {
-			fmt.Printf("Finished procesing YAML %s, having found %d docs\n", yaml_file, len(documentsMap))
+			fmt.Printf("Finished procesing YAML %s, having found %d docs, for a total of %d CSV records\n", yaml_file, len(documentsMap), len(csvDocs))
 		}
 	}
 	fmt.Printf("Found %d records in total\n", len(csvDocs))
 
 	csvFile, err := os.Create(*csvOutputFilename)
+
 	if err != nil {
-		log.Fatal("CSV file open failed for %s, %v", *csvOutputFilename, err)
+		log.Fatalf("CSV file open failed for %s, %v\n", *csvOutputFilename, err)
 	}
 	defer csvFile.Close()
 
 	csvWriter := csv.NewWriter(csvFile)
+	defer csvWriter.Flush()
+
 	header := []string{"Record", "Title", "File", "URL", "Date", "Part Number", "Options"}
 	err = csvWriter.Write(header)
 	if err != nil {
 		fmt.Println("Error writing header to CSV:", err)
 	}
+
 	for _, rec := range csvDocs {
 		err = csvWriter.Write(rec)
 		if err != nil {
 			fmt.Println("Error writing record to CSV:", err)
 		}
 	}
-
 }
 
 // This table shows the fields in a CSV record and the Document members from which each CSV field is derived.
