@@ -50,7 +50,7 @@ func main() {
 
 	bitsavers_index_filename := "data/bitsavers-IndexByDate.txt"
 	bitsavers_md5_filename := "data/site.bitsavers.2021-10-01.md5"
-	output_file := "bitsavers.yaml"
+	output_file := "bin/bitsavers.yaml"
 	verbose := false
 	md5CacheFilename := "bin/md5.store"
 	md5CacheCreate := false
@@ -79,7 +79,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = os.WriteFile("bin/"+output_file, data, 0644)
+	err = os.WriteFile(output_file, data, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -117,20 +117,29 @@ func FindAcceptablePaths(filename string) []string {
 	var docs []string
 
 	scanner := bufio.NewScanner(file)
+	linesRead := 0
+	linesOfInterest := 0
+	linesRejected := 0
+	linesAccedpted := 0
+
 	for scanner.Scan() {
 		var parts []string
 		var path string
 		parts = strings.Fields(scanner.Text())
 		path = parts[2]
 		for _, prefix := range dec_prefixes {
+			linesRead += 1
 			if strings.HasPrefix(path, prefix) {
+				linesOfInterest += 1
 				// Here if the path has a desired prefix
 				fileType := filepath.Ext(path)
 				if contains(reject_file_types, strings.ToLower(fileType)) {
 					// This file type should be rejected
+					linesRejected += 1
 					break
 				} else if contains(accept_file_types, strings.ToLower(fileType)) {
 					// This type is acceptable, so carry on
+					linesAccedpted += 1
 				} else {
 					// The current file type is neither explicitly rejected not accepted.
 					// Complain bitterly in the hope that this omission will be fixed.
@@ -152,6 +161,12 @@ func FindAcceptablePaths(filename string) []string {
 	}
 
 	sort.Strings(docs)
+
+	fmt.Printf("Processed                    %7d lines\n", linesRead)
+	fmt.Printf("Lines in suitable directory: %7d lines\n", linesOfInterest)
+	fmt.Printf("Lines rejected for filetype: %7d lines\n", linesRejected)
+	fmt.Printf("Lines accepted:              %7d lines\n", linesAccedpted)
+	fmt.Printf("Documents produced:          %7d lines\n", len(docs))
 
 	return docs
 }
@@ -189,9 +204,13 @@ func CreateBitsaversDocument(path string) Document {
 //
 // If the file path appears in the available MD5 data file, then that MD5 is used in the Document.
 func MakeDocumentsFromPaths(md5File string, documentPaths []string, md5Store *persistentstore.Store[string, string], verbose bool) map[string]Document {
+	droppedDocument := 0
+	duplicateKey := 0
+
 	documentsMap := make(map[string]Document)
 	for _, path := range documentPaths {
 		if strings.HasPrefix(path, "dec/pdp11/microfiche/Diagnostic_Program_Listings/") || strings.HasPrefix(path, "dec/vax/microfiche/vms-source-listings/") {
+			droppedDocument += 1
 			continue
 		}
 
@@ -268,7 +287,18 @@ func MakeDocumentsFromPaths(md5File string, documentPaths []string, md5Store *pe
 			}
 		}
 
+		if _, exists := documentsMap[key]; exists {
+			duplicateKey += 1
+			fmt.Printf("Duplicate key: [%s] (existing = %v\n", key, documentsMap[key])
+		}
 		documentsMap[key] = newDocument
 	}
+
+	fmt.Printf("Given documents              %7d lines\n", len(documentPaths))
+	fmt.Printf("Rejected documents           %7d lines\n", droppedDocument)
+	fmt.Printf("Duplicate keys               %7d lines\n", duplicateKey)
+	fmt.Printf("Expected documents           %7d lines\n", len(documentPaths)-droppedDocument-duplicateKey)
+	fmt.Printf("Final documents              %7d lines\n", len(documentsMap))
+
 	return documentsMap
 }
