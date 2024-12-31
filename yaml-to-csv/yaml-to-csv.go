@@ -39,11 +39,11 @@ func main() {
 		log.Fatal("Please supply a filespec for the output CSV")
 	}
 
-	documentsMap := make(map[string]Document)
-
 	var csvDocs [][]string
 
 	for _, yaml_file := range flag.Args() {
+		documentsMap := make(map[string]Document)
+
 		if *verbose {
 			fmt.Printf("Processing YAML file: [%s]\n", yaml_file)
 		}
