@@ -28,7 +28,7 @@ var vaxhaven_prefix = "http://www.vaxhaven.com"
 func main() {
 
 	vaxhaven_data := "data/VaxHaven.txt"
-	output_file := "vaxhaven.yaml"
+	output_file := "bin/vaxhaven.yaml"
 	fileSizeStoreFilename := "bin/filesize.store"
 	fileSizeStoreCreate := true
 	verbose := false
@@ -49,7 +49,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = os.WriteFile("bin/"+output_file, data, 0644)
+	err = os.WriteFile(output_file, data, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func CreateVaxHavenDocument(path string) Document {
 	newDocument.PdfProducer = ""
 	newDocument.PdfVersion = ""
 	newDocument.PdfModified = ""
-	newDocument.Collection = "vaxhaven"
+	newDocument.Collection = "VaxHaven"
 	newDocument.Size = 0
 	newDocument.Filepath = path
 
