@@ -1004,6 +1004,7 @@ func BuildNewLocalDocument(title string, partNum string, filePath string, docume
 	newDocument.PdfVersion = pdfMetadata.Format
 	newDocument.PdfModified = pdfMetadata.Modified
 	newDocument.Filepath = documentPath
+	newDocument.Collection = "local-archive"
 
 	return newDocument
 }
