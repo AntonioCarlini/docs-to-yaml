@@ -76,7 +76,7 @@ func main() {
 	csvWriter := csv.NewWriter(csvFile)
 	defer csvWriter.Flush()
 
-	header := []string{"Record", "Title", "File", "URL", "Date", "Part Number", "Options"}
+	header := []string{"Record", "Title", "File", "URL", "Date", "Part Number", "MD5 Checksum", "Options"}
 	err = csvWriter.Write(header)
 	if err != nil {
 		fmt.Println("Error writing header to CSV:", err)
@@ -104,10 +104,9 @@ func main() {
 //
 // The CSV 'options' field contains the following sub-options:
 //
-//	md5='' doc.Md5
-//	collection='' not currently available
+//	collection='' taken from Document.Collection
 func ConvertDocumentToCsv(doc Document) []string {
-	options := fmt.Sprintf("'md5=%s'", doc.Md5)
+	options := fmt.Sprintf("'collection=%s'", doc.Collection)
 	return []string{
 		"Doc",
 		doc.Title,
@@ -115,6 +114,7 @@ func ConvertDocumentToCsv(doc Document) []string {
 		doc.PublicUrl,
 		doc.PubDate,
 		doc.PartNum,
+		doc.Md5,
 		options,
 	}
 }
