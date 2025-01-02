@@ -60,7 +60,8 @@ The fields in a _Version Record_ have these meanings:
 |       4  | _Original URL_       |
 |       5  | _Document date_      |
 |       6  | _Part number_        |
-|       7  | _Options_            |
+|       7  | _MD5 Checksum        |
+|       8  | _Options_            |
 
 * _Record Type_ will always be "Section"
 * _Subsection title_ is the text that describes this section
@@ -68,6 +69,7 @@ The fields in a _Version Record_ have these meanings:
 * _Original URL_ if not blank, is the full URL of a web page that represents this sub-section
 * _Document date_ is the date the section was published; this will usually only be used if the section is described by an online document
 * _Part number_ is blank (and ignored if present)
+* _MD5 Checksum_ is blank (and ignored if present)
 * _Options_ is blank (and ignored if present)
 
 ### Document Record
@@ -82,7 +84,8 @@ The fields in a Document record have these meanings:
 |       4  | _Original URL_       |
 |       5  | _Document date_      |
 |       6  | _Part number_        |
-|       7  | _Options_            |
+|       7  | _MD5 Checksum        |
+|       8  | _Options_            |
 
 * _Record Type_ will always be "Doc" for a document
 * _Document title_ is the official full title of the document
@@ -90,6 +93,7 @@ The fields in a Document record have these meanings:
 * _Original URL_ is the full URL from which the document was obtained
 * _Document date_ is the date the document was published; usually this will be found in the document itself
 * _Part number_ is the part number, if any, associated with the document; usually this will have been created by the original publisher
+* _MD5 Checksum_ is the MD5 checksum of the file, if known, otherwise is blank
 * _Options_ TBD
 
 ### Section Record
@@ -105,6 +109,7 @@ The fields in a _Section Record_ have these meanings:
 |       5  | _Document date_      |
 |       6  | ignored              |
 |       7  | ignored              |
+|       8  | ignored              |
 
 * _Record Type_ will always be "Section"
 * _Section title_ is the text that describes this section
@@ -125,6 +130,7 @@ The fields in a _Subection Record_ have these meanings:
 |       5  | ignored              |
 |       6  | ignored              |
 |       7  | ignored              |
+|       8  | ignored              |
 
 * _Record Type_ will always be "Section"
 * _Section title_ is the text that describes this section
