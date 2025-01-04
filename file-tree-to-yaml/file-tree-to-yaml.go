@@ -125,6 +125,12 @@ func main() {
 	}
 
 	for _, filepath := range paths {
+		// Some 'index' files are added to a local file tree for tracking and cataloguing purposes.
+		// These are not part of the original data set and should not be recorded as a Document.
+		if (filepath == "index.csv") || (filepath == "index.yaml") || (filepath == "index.pdf") || (filepath == "index.txt") || (filepath == "index.html") {
+			continue
+		}
+
 		doc, found := mapByFilepath[filepath]
 		if !found {
 			doc = CreateLocalDocument(filepath)
