@@ -8,10 +8,19 @@ package main
 
 // This is currently a work in progress.
 
+// TODO:
+// If CSV specified:
+//   read CSV
+//   match files by MD5
+//   report any failed matches
+//   report any title changes
+//   force replacement yaml (same name but .new.yaml)
+
 import (
 	"crypto/md5"
 	"docs-to-yaml/internal/document"
 	"docs-to-yaml/internal/pdfmetadata"
+	"encoding/csv"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -54,15 +63,48 @@ func main() {
 	md5Gen := flag.Bool("md5-sum", false, "Enable generation of MD5 sums")
 	exifRead := flag.Bool("exif", false, "Enable EXIF reading")
 	treeRoot := flag.String("tree-root", "", "root of the tree for which YAML should be generated")
+	update := flag.Bool("update", false, "Enable verbose reporting")
 
 	flag.Parse()
+
+	var err error
 
 	if *yamlOutputFilename == "" {
 		log.Fatal("Please supply a filespec for the output YAML")
 	}
 
+	var mapByMd5 map[string]Document = make(map[string]Document)
+	var mapByFilepath map[string]Document = make(map[string]Document)
+	var csvMapByMd5 map[string]Document = make(map[string]Document)
+
+	if *update {
+		fmt.Println("Update specified: loading CSV")
+		/* TODO read CSV file into Document objects*/
+		csvMapByMd5, err = LoadCSV(*treeRoot)
+		if err != nil {
+			log.Fatalf("impossible to process CSV: %s", err)
+		}
+	} else {
+		fmt.Println("CSV NOT specified")
+	}
+
+	var yamlSource = *yamlOutputFilename
+
+	if *update {
+		yamlSource = *treeRoot
+		if (*treeRoot)[len(*treeRoot)-1:] != "/" {
+			yamlSource += "/"
+		}
+		yamlSource += "index.yaml"
+	}
+
+	// TODO:
+	// --update means produce updated YAML from index.yaml and index.csv (at least one must exist)
+	//
+
 	// Start by reading the output yaml file.
-	initialData, err := YamlDataInit(*yamlOutputFilename)
+	fmt.Printf("Seeding YAML with %s\n", yamlSource)
+	initialData, err := YamlDataInit(yamlSource)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -85,19 +127,16 @@ func main() {
 	treePrefixLength := len(treePrefix)
 
 	// Accumulate the path to each file under the root, ignoring any directories.
-	var paths []string
+	var relativePaths []string
 	err = filepath.WalkDir(*treeRoot, func(path string, d fs.DirEntry, err error) error {
 		if !d.IsDir() {
-			paths = append(paths, path[treePrefixLength:])
+			relativePaths = append(relativePaths, path[treePrefixLength:])
 		}
 		return nil
 	})
 	if err != nil {
 		log.Fatalf("impossible to walk directories: %s", err)
 	}
-
-	var mapByMd5 map[string]Document = make(map[string]Document)
-	var mapByFilepath map[string]Document = make(map[string]Document)
 
 	for _, v := range initialData {
 		md5 := v.Md5
@@ -124,16 +163,16 @@ func main() {
 		fmt.Printf("After loading and processing YAML file, %d documents are known (by filepath and by MD5).\n", len(mapByFilepath))
 	}
 
-	for _, filepath := range paths {
+	for _, relativeFilepath := range relativePaths {
 		// Some 'index' files are added to a local file tree for tracking and cataloguing purposes.
 		// These are not part of the original data set and should not be recorded as a Document.
-		if (filepath == "index.csv") || (filepath == "index.yaml") || (filepath == "index.pdf") || (filepath == "index.txt") || (filepath == "index.html") {
+		if (relativeFilepath == "index.csv") || (relativeFilepath == "index.yaml") || (relativeFilepath == "index.pdf") || (relativeFilepath == "index.txt") || (relativeFilepath == "index.html") {
 			continue
 		}
 
-		doc, found := mapByFilepath[filepath]
+		doc, found := mapByFilepath[relativeFilepath]
 		if !found {
-			doc = CreateLocalDocument(filepath)
+			doc = CreateLocalDocument(relativeFilepath)
 		}
 		originalMd5 := doc.Md5
 
@@ -199,7 +238,7 @@ func main() {
 		}
 
 		// Update the map entry in case it has changed
-		mapByFilepath[filepath] = doc
+		mapByFilepath[relativeFilepath] = doc
 		// MD5 checksum may have changed: if so, remove the old entry from the map keyed on MD5 checksum
 		if originalMd5 != md5Key {
 			delete(mapByMd5, originalMd5)
@@ -270,6 +309,54 @@ func main() {
 		fmt.Println("Finally finished with this many documents: ", len(mapByFilepath))
 	}
 
+	// Loop through docs in CSV
+	// If no key match in mapByMd5, complain
+	// If key matches then some fields must match
+	// If all OK, override title if different
+	for k, d := range csvMapByMd5 {
+		if doc, ok := mapByMd5[k]; ok {
+			if (doc.Md5 != d.Md5) || (doc.Filepath != d.Filepath) {
+				fmt.Printf("CSV doc %s with MD5 %s mismatched (%s in mapByMd5)\n", k, d.Md5, doc.Md5)
+				continue
+			}
+			if doc.Filepath != d.Filepath {
+				fmt.Printf("CSV doc %s with Filepath %s mismatched (%s in mapByMd5)\n", k, d.Filepath, doc.Filepath)
+				continue
+			}
+			if (doc.PublicUrl != d.PublicUrl) && (doc.PublicUrl != "") && (d.PublicUrl != "") {
+				fmt.Printf("CSV doc %s with URL %s mismatched (%s in mapByMd5)\n", k, d.PublicUrl, doc.PublicUrl)
+				continue
+			}
+			if (doc.PubDate != d.PubDate) || (doc.PartNum != d.PartNum) {
+				fmt.Printf("CSV doc %s with Date %s mismatched (%s in mapByMd5)\n", k, d.PubDate, doc.PubDate)
+				continue
+			}
+			if doc.PartNum != d.PartNum {
+				fmt.Printf("CSV doc %s with Part Num %s mismatched (%s in mapByMd5)\n", k, d.PartNum, doc.PartNum)
+				continue
+			}
+			// Here the CSV and generated YAML agree, so update the title if necessary
+			var mapEntryUpdated = false
+
+			if doc.Title != d.Title {
+				doc.Title = d.Title
+				mapEntryUpdated = true
+				fmt.Printf("Updated title for %s from CSV (%s)\n", doc.Md5, doc.Title)
+			}
+			// Update the URL if appropriate
+			if (doc.PublicUrl != d.PublicUrl) && (doc.PublicUrl == "") {
+				doc.PublicUrl = d.PublicUrl
+				mapEntryUpdated = true
+				fmt.Printf("Updated URL for %s from CSV (%s): %s\n", doc.Md5, doc.Title, doc.PublicUrl)
+			}
+			if mapEntryUpdated {
+				mapByMd5[k] = doc
+			}
+		} else {
+			fmt.Printf("CSV doc %s with MD5 %s not found in mapByMd5\n", k, d.Title)
+		}
+	}
+
 	// After all the manipulation, there must be exactly the same number of documents in the MD5 and Filepath maps
 	// (unless MD5 processing has not been enabled)
 	if *md5Gen && (len(mapByMd5) != len(mapByFilepath)) {
@@ -318,8 +405,47 @@ func YamlDataInit(filename string) (map[string]Document, error) {
 	return documents, err
 }
 
+// This function reads a CSV file and unpacks the information into a map of Document objects
+func LoadCSV(filepath string) (map[string]Document, error) {
+	var docs map[string]Document = make(map[string]Document)
+
+	var csvFilepath = filepath
+	if filepath[len(filepath)-1:] != "/" {
+		csvFilepath += "/"
+	}
+	csvFilepath += "index.csv"
+	csvFile, err := os.Open(csvFilepath)
+	if err != nil {
+		return nil, err
+	}
+	defer csvFile.Close()
+	reader := csv.NewReader(csvFile)
+	csvRecords, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range csvRecords {
+		// Ignore any records that do not relate to a specific document
+		if row[0] != "Doc" {
+			continue
+		}
+		newDoc := CreateLocalDocument(row[2])
+		newDoc.Title = row[1]
+		newDoc.PublicUrl = row[3]
+		newDoc.PubDate = row[4]
+		newDoc.PartNum = row[5]
+		newDoc.Md5 = row[6]
+		// TODO handle collection in options?
+		docKey := document.BuildKeyFromDocument(newDoc)
+		fmt.Printf("CSV doc MD5=[%s] Key=[%s]\n", newDoc.Md5, docKey)
+		docs[docKey] = newDoc
+	}
+
+	return docs, nil
+}
+
 // This function function creates a Document struct with some default values set
-func CreateLocalDocument(path string) Document {
+func CreateLocalDocument(relativeFilepath string) Document {
 	var newDocument Document
 	newDocument.Md5 = ""
 	newDocument.PubDate = ""
@@ -329,7 +455,7 @@ func CreateLocalDocument(path string) Document {
 	newDocument.PdfModified = ""
 	newDocument.Collection = "local-pending"
 	newDocument.Size = 0
-	newDocument.Filepath = path
+	newDocument.Filepath = relativeFilepath
 
 	return newDocument
 }
