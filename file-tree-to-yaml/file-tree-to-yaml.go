@@ -121,7 +121,7 @@ func main() {
 	if len(mapByMd5) != len(mapByFilepath) {
 		log.Fatalf("After all processing, MD5 and Filepath maps are different sizes; %d docs listed by MD5 and %d listed by filepath\n", len(mapByMd5), len(mapByFilepath))
 	} else {
-		fmt.Printf("After loading and processing YAML file, %d documents are known.\n", len(mapByFilepath))
+		fmt.Printf("After loading and processing YAML file, %d documents are known (by filepath and by MD5).\n", len(mapByFilepath))
 	}
 
 	for _, filepath := range paths {
@@ -152,6 +152,7 @@ func main() {
 		fullPath := treePrefix + doc.Filepath
 
 		// Calculate the MD5 checksum if requested and not already present
+
 		if *md5Gen {
 			if doc.Md5 == "" {
 				if *verbose {
@@ -166,6 +167,8 @@ func main() {
 				doc.Md5 = md5Checksum
 			}
 		}
+
+		md5Key := document.BuildKeyFromDocument(doc)
 
 		// Read the EXIF data if requested and any of it is missing
 		// TOOD only do this if the format is PDF!
@@ -192,10 +195,13 @@ func main() {
 		// Update the map entry in case it has changed
 		mapByFilepath[filepath] = doc
 		// MD5 checksum may have changed: if so, remove the old entry from the map keyed on MD5 checksum
-		if originalMd5 != doc.Md5 {
+		if originalMd5 != md5Key {
 			delete(mapByMd5, originalMd5)
 		}
-		mapByMd5[doc.Md5] = doc
+		mapByMd5[md5Key] = doc
+		if *verbose {
+			fmt.Printf("Added MD5 map entry key=%s title=%s\n", md5Key, doc.Title)
+		}
 
 		pathOK, badChar, nonAsciiChar := CheckPathForInadvisableCharacters(doc.Filepath)
 		if !pathOK {
@@ -215,15 +221,17 @@ func main() {
 	// of a document that is named for its MD5 checksum!).
 	// Eliminate any document in the map-by-MD5 that meets either of these criteria.
 
-	for k, v := range mapByMd5 {
-		if (v.Md5 == "") || (v.Md5 == v.Filepath) {
-			fmt.Printf("Eliminating MD5 entry for path %s using key [%s]\n", v.Filepath, k)
-			delete(mapByMd5, k)
+	if *md5Gen {
+		for k, v := range mapByMd5 {
+			if (v.Md5 == "") || (v.Md5 == v.Filepath) {
+				fmt.Printf("Eliminating MD5 entry for path %s using key [%s]\n", v.Filepath, k)
+				delete(mapByMd5, k)
+			}
 		}
 	}
 
 	// Ensure that each document is listed
-	fmt.Println("Finished with this many documents: ", len(mapByFilepath))
+	fmt.Println("Finished with this many documents by filepath: ", len(mapByFilepath), " and this many by MD5: ", len(mapByMd5))
 
 	if *fnfList || *fnfDiscard {
 		for k, d := range mapByFilepath {
@@ -269,6 +277,9 @@ func main() {
 	}
 
 	// Write the output YAML file
+	if *verbose {
+		fmt.Printf("Saving %d documents\n", len(mapByMd5))
+	}
 	data, err := yaml.Marshal(&mapByMd5)
 	if err != nil {
 		log.Fatal("Bad YAML data: ", err)
@@ -310,7 +321,7 @@ func CreateLocalDocument(path string) Document {
 	newDocument.PdfProducer = ""
 	newDocument.PdfVersion = ""
 	newDocument.PdfModified = ""
-	newDocument.Collection = "local"
+	newDocument.Collection = "local-pending"
 	newDocument.Size = 0
 	newDocument.Filepath = path
 
