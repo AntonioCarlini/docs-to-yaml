@@ -70,11 +70,17 @@ func DetermineDocumentFormat(filename string) (string, error) {
 // The rest is a title with underscore taking the place of any spaces.
 // Finally the document format is decided based on the filetype.
 
+var inventedPartNum = ""
+var inventedTitle = ""
+var inventedPubDate = ""
+
 func DetermineDocumentPropertiesFromPath(path string, verbose bool) Document {
 	var doc Document
-	doc.PartNum = "MADE-UP-PN"
-	doc.Title = "*** Invented Title ***"
-	doc.PubDate = "1758-11-04"
+	doc.PartNum = inventedPartNum
+
+	doc.Title = inventedTitle
+
+	doc.PubDate = inventedPubDate
 
 	filename := filepath.Base(path)
 	fileType := strings.ToUpper(filepath.Ext(path))
@@ -138,11 +144,12 @@ func BuildKeyFromDocument(doc Document) string {
 		return doc.Md5
 	}
 
-	// Try, in turn, the part number, title and filepath
-	if doc.PartNum != "" {
-		return doc.PartNum
-	} else if doc.Title != "" {
-		return doc.Title
+	// Try, in turn, the part number + file extension, title + fileextension  and filepath
+	// Using the file extension is necessary in those cases where the same part number document appears as two different types (e.g. .txt and .pdf)
+	if (doc.PartNum != "") && (doc.PartNum != inventedPartNum) {
+		return doc.PartNum + filepath.Ext(doc.Filepath)
+	} else if (doc.Title != "") && (doc.Title != inventedTitle) {
+		return doc.Title + filepath.Ext(doc.Filepath)
 	}
 	return doc.Filepath
 
