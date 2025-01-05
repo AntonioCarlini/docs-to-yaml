@@ -1065,7 +1065,7 @@ func TidyDocumentTitle(untidyTitle string) string {
 	title := strings.TrimSpace(untidyTitle)
 	title = strings.Replace(title, "\r\n", "", -1)
 	title = strings.Join(strings.Fields(title), " ") // Collapse duplicate whitespace
-	re := regexp.MustCompile(`\s*<BR>(?:<BR>)*`)
+	re := regexp.MustCompile(`\s*<BR>(?:\s*<BR>\s*)*\s*`)
 	title = re.ReplaceAllString(title, ". ")
 	return title
 }
@@ -1099,6 +1099,9 @@ func CalculateMd5Sum(filenameInCache string, fullFilepath string, md5Store *pers
 // Helper function to remove leading and trailing double quotes, if present.
 // Otherwise returns the original string untouched.
 func StripOptionalLeadingAndTrailingDoubleQuotes(candidate string) string {
+	if len(candidate) == 0 {
+		return candidate
+	}
 	result := candidate
 	if (result[0] == '"') && (result[len(result)-1] == '"') {
 		result = result[1 : len(result)-1]
