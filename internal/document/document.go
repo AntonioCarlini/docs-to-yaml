@@ -35,7 +35,7 @@ type Document struct {
 // package.
 // Note that "HTM" will be returned as "HTML": both types exist in the collection but it makes no sense to allow both!
 // Similarly "JPG" will be returned as "JPEG".
-var KnownFileTypes = [...]string{"PDF", "TXT", "MEM", "RNO", "PS", "HTM", "HTML", "ZIP", "LN3", "TIF", "JPG", "JPEG", "PNG"}
+var KnownFileTypes = [...]string{"PDF", "TXT", "MEM", "RNO", "PS", "HTM", "HTML", "ZIP", "LN3", "TIF", "JPG", "JPEG", "PNG", "DOC"}
 
 // Sometimes the same file structure may be indicated by multiple filetypes, for
 // example HTML files may be ".HTM" or ".HTML", the JPEG file format might be ".JPEG" or ".JPG"
@@ -59,7 +59,7 @@ func DetermineDocumentFormat(filename string) (string, error) {
 	}
 	// log.Fatalf("Unknown filetype: %s for filename %s\n", filetype, filename) // TODO
 
-	return "???", errors.New("Unknown file type when trying to determine docuemnt format")
+	return "???", errors.New("unknown file type when trying to determine document format")
 }
 
 // Attempt to parse the document filename to produce a part number, a title, a publication date and fill in the document format.
@@ -87,7 +87,7 @@ func DetermineDocumentPropertiesFromPath(path string, verbose bool) Document {
 	format, err := DetermineDocumentFormat(path)
 	if err != nil {
 		//.Fatalf("failed to find format in %s, err=%s\n", path, err)
-		fmt.Printf("Fatal error avoided for [%s]\n", path)
+		fmt.Printf("Fatal error avoided for [%s], %s\n", path, err)
 	}
 	doc.Format = format
 
