@@ -15,6 +15,14 @@ package main
 //   report any failed matches
 //   report any title changes
 //   force replacement yaml (same name but .new.yaml)
+//
+// Temporary notes:
+//
+// Use cases:
+//
+// (1) Build initial YAML file for a new file tree of documents
+// (2) Take an existing file tree of documents with partial index documents and flesh these out
+//
 
 import (
 	"crypto/md5"
@@ -29,6 +37,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v2"
@@ -327,7 +336,7 @@ func main() {
 				fmt.Printf("CSV doc %s with URL %s mismatched (%s in mapByMd5)\n", k, d.PublicUrl, doc.PublicUrl)
 				continue
 			}
-			if (doc.PubDate != d.PubDate) || (doc.PartNum != d.PartNum) {
+			if (doc.PubDate != d.PubDate) && (doc.PubDate != "") {
 				fmt.Printf("CSV doc %s with Date %s mismatched (%s in mapByMd5)\n", k, d.PubDate, doc.PubDate)
 				continue
 			}
@@ -373,9 +382,29 @@ func main() {
 	if *verbose {
 		fmt.Printf("Saving %d documents\n", len(mapByMd5))
 	}
-	data, err := yaml.Marshal(&mapByMd5)
-	if err != nil {
-		log.Fatal("Bad YAML data: ", err)
+
+	// Try to write out the YAML in alphabetical order by title.
+	// Do this by ordering the keys according to the title alphabetical order and
+	// then for each key (in order) marshalling a map with just that key and its Document.
+	var keys []string
+	for key := range mapByMd5 {
+		keys = append(keys, key)
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		return mapByMd5[keys[i]].Title < mapByMd5[keys[j]].Title
+	})
+
+	// Marhsall each entry, one at a time
+	var data []byte
+	for _, key := range keys {
+		var oneMap map[string]Document = make(map[string]Document)
+		oneMap[key] = mapByMd5[key]
+		foo2, err := yaml.Marshal(&oneMap)
+		if err != nil {
+			log.Fatal("Bad YAML data 2: ", err)
+		}
+		data = append(data, foo2...)
 	}
 
 	err = os.WriteFile(*yamlOutputFilename, data, 0644)
