@@ -88,6 +88,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -248,9 +249,28 @@ func main() {
 	}
 
 	// Write the output YAML file
-	data, err := yaml.Marshal(&documentsMap)
-	if err != nil {
-		log.Fatal("Bad YAML data: ", err)
+	// Try to write out the YAML in alphabetical order by title.
+	// Do this by ordering the keys according to the title alphabetical order and
+	// then for each key (in order) marshalling a map with just that key and its Document.
+	var keys []string
+	for key := range documentsMap {
+		keys = append(keys, key)
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		return (documentsMap[keys[i]].Collection + documentsMap[keys[i]].Title) < (documentsMap[keys[j]].Collection + documentsMap[keys[j]].Title)
+	})
+
+	// Marhsall each entry, one at a time
+	var data []byte
+	for _, key := range keys {
+		var oneMap map[string]Document = make(map[string]Document)
+		oneMap[key] = documentsMap[key]
+		foo2, err := yaml.Marshal(&oneMap)
+		if err != nil {
+			log.Fatal("Bad YAML data 2: ", err)
+		}
+		data = append(data, foo2...)
 	}
 
 	err = os.WriteFile(*yamlOutputFilename, data, 0644)
@@ -388,7 +408,6 @@ func ProcessCategoryHTML(archive PathAndVolume, fileExceptions *FileHandlingExce
 			documentsMap[k] = v
 		}
 	}
-
 	return documentsMap
 }
 
@@ -536,6 +555,7 @@ func ProcessCategoryCustom(archive PathAndVolume, fileExceptions *FileHandlingEx
 					}
 				}
 				newDoc := BuildNewLocalDocument(title, partNum, archive.Path+target, documentPath, md5Checksum, programFlags.ReadEXIF)
+				newDoc.Collection = "local:" + archive.VolumeName
 				key := md5Checksum
 				if key == "" {
 					key = partNum + "~" + newDoc.Format
@@ -937,6 +957,7 @@ func ParseIndexHtml(filename string, volume string, root string, fileExceptions 
 
 				documentRelativePath := "file:///" + volume + "/" + modifiedVolumePath
 				newDocument := BuildNewLocalDocument(title, partNumber, candidateFile[0], documentRelativePath, md5Checksum, programFlags.ReadEXIF)
+				newDocument.Collection = "local:" + volume
 
 				key := md5Checksum
 				if key == "" {
