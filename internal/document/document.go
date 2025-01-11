@@ -295,3 +295,12 @@ func ClearFlags(doc *Document, flags string) {
 		}
 	}
 }
+
+// Generate a string suitable for comparing one Document object with another
+func ComparisonString(doc Document) string {
+	// (documentsMap[keys[i]].Collection + documentsMap[keys[i]].Title + documentsMap[keys[i]].PartNum + strconv.FormatInt(documentsMap[keys[i]].Size, 10) + documentsMap[keys[i]].Filepath)
+	var key string
+	key = doc.Collection + doc.Title
+	key = key + doc.PartNum + strconv.FormatInt(doc.Size, 10) + doc.Filepath
+	return key
+}
