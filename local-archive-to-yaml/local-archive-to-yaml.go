@@ -88,11 +88,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"sort"
 	"strings"
 	"unicode"
-
-	"gopkg.in/yaml.v2"
 )
 
 type Document = document.Document
@@ -248,38 +245,15 @@ func main() {
 		fmt.Printf("Final tally of %d documents being written to YAML\n", len(documentsMap))
 	}
 
+	// If the MD5 Store is active and it has been modified ... save it
+	md5Store.Save(*md5CacheFilename)
+
 	// Write the output YAML file
-	// Try to write out the YAML in alphabetical order by title.
-	// Do this by ordering the keys according to the title alphabetical order and
-	// then for each key (in order) marshalling a map with just that key and its Document.
-	var keys []string
-	for key := range documentsMap {
-		keys = append(keys, key)
-	}
-
-	sort.Slice(keys, func(i, j int) bool {
-		return document.ComparisonString(documentsMap[keys[i]]) < document.ComparisonString(documentsMap[keys[j]])
-	})
-
-	// Marhsall each entry, one at a time
-	var data []byte
-	for _, key := range keys {
-		var oneMap map[string]Document = make(map[string]Document)
-		oneMap[key] = documentsMap[key]
-		foo2, err := yaml.Marshal(&oneMap)
-		if err != nil {
-			log.Fatal("Bad YAML data 2: ", err)
-		}
-		data = append(data, foo2...)
-	}
-
-	err = os.WriteFile(*yamlOutputFilename, data, 0644)
+	err = document.WriteDocumentsMapToOrderedYaml(documentsMap, *yamlOutputFilename)
 	if err != nil {
 		log.Fatal("Failed YAML write: ", err)
 	}
 
-	// If the MD5 Store is active and it has been modified ... save it
-	md5Store.Save(*md5CacheFilename)
 }
 
 // ProcessArchive examines a single archive volume, determines the category it belongs to

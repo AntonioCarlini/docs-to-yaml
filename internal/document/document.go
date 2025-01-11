@@ -4,10 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v2"
 )
 
 // The Document struct is how per-electronic-document data is represented in YAML
@@ -303,4 +307,43 @@ func ComparisonString(doc Document) string {
 	key = doc.Collection + doc.Title
 	key = key + doc.PartNum + strconv.FormatInt(doc.Size, 10) + doc.Filepath
 	return key
+}
+
+// Takes a map of Documents (indexed by MD5 or similar) and writes
+// out an ordered set of Docuemnt entries in YAML format.
+// The order is determined by Document.ComparisonString.
+
+func WriteDocumentsMapToOrderedYaml(documentsMap map[string]Document, outputFilename string) error {
+	var err error
+
+	// Try to write out the YAML in alphabetical order by title.
+	// Do this by ordering the keys according to the title alphabetical order and
+	// then for each key (in order) marshalling a map with just that key and its Document.
+	var keys []string
+	for key := range documentsMap {
+		keys = append(keys, key)
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		return ComparisonString(documentsMap[keys[i]]) < ComparisonString(documentsMap[keys[j]])
+	})
+
+	// Marhsall each Document entry, one at a time
+	var data []byte
+	for _, key := range keys {
+		var oneMap map[string]Document = make(map[string]Document)
+		oneMap[key] = documentsMap[key]
+		entry, err := yaml.Marshal(&oneMap)
+		if err != nil {
+			log.Fatal("Bad YAML data 2: ", err)
+		}
+		data = append(data, entry...)
+	}
+
+	err = os.WriteFile(outputFilename, data, 0644)
+	if err != nil {
+		log.Fatal("Failed YAML write: ", err)
+	}
+
+	return nil
 }
