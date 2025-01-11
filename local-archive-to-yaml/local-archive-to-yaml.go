@@ -89,6 +89,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -258,7 +259,8 @@ func main() {
 	}
 
 	sort.Slice(keys, func(i, j int) bool {
-		return (documentsMap[keys[i]].Collection + documentsMap[keys[i]].Title) < (documentsMap[keys[j]].Collection + documentsMap[keys[j]].Title)
+		return (documentsMap[keys[i]].Collection + documentsMap[keys[i]].Title + documentsMap[keys[i]].PartNum + strconv.FormatInt(documentsMap[keys[i]].Size, 10) + documentsMap[keys[i]].Filepath) <
+			(documentsMap[keys[j]].Collection + documentsMap[keys[j]].Title + documentsMap[keys[j]].PartNum + strconv.FormatInt(documentsMap[keys[j]].Size, 10) + documentsMap[keys[j]].Filepath)
 	})
 
 	// Marhsall each entry, one at a time
