@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // This program takes the bitsavers IndexByDate.txt file and produces a YAML output that describes each entry.
@@ -73,15 +71,10 @@ func main() {
 
 	documentsMap := MakeDocumentsFromPaths(bitsavers_md5_filename, docs, md5Store, verbose)
 
-	// Construct the YAML data and write it out to a file
-	data, err := yaml.Marshal(&documentsMap)
+	// Write the output YAML file
+	err = document.WriteDocumentsMapToOrderedYaml(documentsMap, output_file)
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = os.WriteFile(output_file, data, 0644)
-	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Failed YAML write: ", err)
 	}
 }
 
