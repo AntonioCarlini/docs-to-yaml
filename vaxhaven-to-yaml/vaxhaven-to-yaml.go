@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v2"
 )
 
 // This program takes the a subset of VaxHaven documentation index pages and the set of known VaxHaven documents
@@ -43,20 +41,14 @@ func main() {
 
 	documentsMap := ParseNewData(vaxhaven_data, fileSizeStore, verbose)
 
-	// Construct the YAML data and write it out to a file
-	data, err := yaml.Marshal(&documentsMap)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = os.WriteFile(output_file, data, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	// If the FileSize Store is active and it has been modified ... save it
 	fileSizeStore.Save(fileSizeStoreFilename)
 
+	// Write the output YAML file
+	err = document.WriteDocumentsMapToOrderedYaml(documentsMap, output_file)
+	if err != nil {
+		log.Fatal("Failed YAML write: ", err)
+	}
 }
 
 // This function parses the VaxHaven HTML that indexes the documents and produces a set of
