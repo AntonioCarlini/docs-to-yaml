@@ -37,7 +37,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v2"
@@ -383,31 +382,8 @@ func main() {
 		fmt.Printf("Saving %d documents\n", len(mapByMd5))
 	}
 
-	// Try to write out the YAML in alphabetical order by title.
-	// Do this by ordering the keys according to the title alphabetical order and
-	// then for each key (in order) marshalling a map with just that key and its Document.
-	var keys []string
-	for key := range mapByMd5 {
-		keys = append(keys, key)
-	}
-
-	sort.Slice(keys, func(i, j int) bool {
-		return mapByMd5[keys[i]].Title < mapByMd5[keys[j]].Title
-	})
-
-	// Marhsall each entry, one at a time
-	var data []byte
-	for _, key := range keys {
-		var oneMap map[string]Document = make(map[string]Document)
-		oneMap[key] = mapByMd5[key]
-		foo2, err := yaml.Marshal(&oneMap)
-		if err != nil {
-			log.Fatal("Bad YAML data 2: ", err)
-		}
-		data = append(data, foo2...)
-	}
-
-	err = os.WriteFile(*yamlOutputFilename, data, 0644)
+	// Write the output YAML file
+	err = document.WriteDocumentsMapToOrderedYaml(mapByMd5, *yamlOutputFilename)
 	if err != nil {
 		log.Fatal("Failed YAML write: ", err)
 	}
