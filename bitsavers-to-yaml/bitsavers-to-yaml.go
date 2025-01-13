@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"docs-to-yaml/internal/document"
 	"docs-to-yaml/internal/persistentstore"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -48,10 +49,24 @@ func main() {
 
 	bitsavers_index_filename := "data/bitsavers-IndexByDate.txt"
 	bitsavers_md5_filename := "data/site.bitsavers.2021-10-01.md5"
-	output_file := "bin/bitsavers.yaml"
+	// output_file := "bin/bitsavers.yaml"
+	output_file := flag.String("yaml-output", "", "filepath of the output file to hold the generated yaml")
 	verbose := false
 	md5CacheFilename := "bin/md5.store"
 	md5CacheCreate := false
+
+	flag.Parse()
+
+	fatal_error_seen := false
+
+	if *output_file == "" {
+		log.Print("--yaml-output is mandatory - specify an output YAML file")
+		fatal_error_seen = true
+	}
+
+	if fatal_error_seen {
+		log.Fatal("Unable to continue because of one or more fatal errors")
+	}
 
 	md5StoreInstantiation := persistentstore.Store[string, string]{}
 	md5Store, err := md5StoreInstantiation.Init(md5CacheFilename, md5CacheCreate, verbose)
@@ -72,13 +87,13 @@ func main() {
 	documentsMap := MakeDocumentsFromPaths(bitsavers_md5_filename, docs, md5Store, verbose)
 
 	// Write the output YAML file
-	err = document.WriteDocumentsMapToOrderedYaml(documentsMap, output_file)
+	err = document.WriteDocumentsMapToOrderedYaml(documentsMap, *output_file)
 	if err != nil {
 		log.Fatal("Failed YAML write: ", err)
 	}
 }
 
-// Read the bitsavers IndexByDate.txt file and build a set of paths under DEC-related diectories
+// Read the bitsavers IndexByDate.txt file and build a set of paths under DEC-related directories
 // that correspond to files with acceptable file types.
 // This is so that files that are unlikely to be documents can be filtered out,
 // for example file types such as JPG, BIN and so on are not likely to be
