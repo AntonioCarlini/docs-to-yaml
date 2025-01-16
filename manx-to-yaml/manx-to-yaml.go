@@ -18,10 +18,10 @@ import (
 //
 // The purpose is to use the information gathered by manx (when it was at vt100.net)
 // to produce a document list including document titles and MD5 checksum. That should
-// allow me to scans that I have archived locally but which originated on bitsavers
+// allow me to find scans that I have archived locally but which originated on bitsavers
 // (or from somewhere that bitsavers has archived). Well, that was the plan, but
 // bitsavers has altered the metadata of some of its files at various times, so I need
-// a more sophisticated plan of attack. Anyway, the output is still useful for other
+// a more sophisticated plan of attack. Anyway, the output may still be useful for other
 // purposes in the future.
 //
 // For a given document, record at least:
@@ -43,8 +43,13 @@ import (
 // Table 'PUB_HISTORY' lists company, part #, publication date, title
 
 // Issues:
-// - cannot simply split on comma ... needed proper CSV parsing
 // - change COPY from single quotes to double quotes (to keep the CSV package happy)
+
+const (
+	// The PUB_HISTORY dump of Manx from 2010 has 24 fields.
+	// This will never change, so define it here to allow a sanity check in the code.
+	PUB_HISTORY_SQL_DUMP_NUM_FIELDS = 24
+)
 
 type Document = document.Document
 
@@ -204,9 +209,55 @@ func parseManxPubHistoryTable(filename string) map[int]PubHistory {
 			start := strings.Index(line, "(") + 1
 			end := strings.LastIndex(line, ");")
 			data_text := line[start:end]
-			data := strings.Split(data_text, ",")
+
+			//r := csv.NewReader(bytes.NewReader([]byte(data_text)))
+			//r.Comma = ','
+			// r.LazyQuotes = true
+			//r.Quote = '\'' // Use single quotes as the quote character
+
+			// Manually split by commas, handling quoted values
+			// encoding/csv won't handle any quoting character other than a double quote
+			data := []string{}
+			field := ""
+			inQuotes := false
+			previousChar := '?'
+			for _, char := range data_text {
+				if char == '\'' && previousChar != '\\' {
+					// Seeing a quote switches into and out of quote mode
+					// (unless this is an escaped single quote: \')
+					inQuotes = !inQuotes
+				} else if char == ',' && !inQuotes {
+					// If a ',' is seen outside of quotes, this is the end of a field
+					data = append(data, field)
+					field = ""
+				} else {
+					// Otherwise append this character to the current field
+					field += string(char)
+					previousChar = char
+				}
+			}
+
+			// Add last field
+			if field != "" {
+				data = append(data, field)
+			}
+
+			// Output the parsed values
+
+			if len(data) != PUB_HISTORY_SQL_DUMP_NUM_FIELDS {
+				fmt.Println("Read: [" + data_text + "]")
+				fmt.Println("Parsed values (len=" + strconv.Itoa(len(data)) + "):")
+				for i, field := range data {
+					fmt.Printf("%d: %s\n", i+1, field)
+				}
+			}
+
 			var pubHistory PubHistory
 			pubHistory.Id, err = strconv.Atoi(data[0])
+			if err != nil {
+				fmt.Println("Error converting number ["+data[0]+"] in line: ["+data_text+"]", err)
+				continue
+			}
 			// pubHistory.Active, err = strconv.Atoi(data[1])
 			pubHistory.Created = data[2]
 			// pubHistory.EditedBy, err = strconv.Atoi(data[3])
