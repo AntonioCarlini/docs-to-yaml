@@ -275,11 +275,15 @@ func main() {
 			continue
 		}
 
+		title := StripOptionalLeadingAndTrailingSingleQuotes(pubHistory.Title)
+		partNum := StripOptionalLeadingAndTrailingSingleQuotes(pubHistory.Part)
+		publicUrl := StripOptionalLeadingAndTrailingSingleQuotes(entry.Url)
+
 		key := entry.Md5
 		if key == "" {
-			key = pubHistory.Part
+			key = partNum
 			if key == "" {
-				key = pubHistory.Title
+				key = title
 			}
 		}
 
@@ -294,9 +298,10 @@ func main() {
 		newDocument.Format = entry.Format
 		newDocument.Size = entry.Size
 		newDocument.Md5 = entry.Md5
-		newDocument.Title = pubHistory.Title
+		newDocument.Title = title
 		newDocument.PubDate = pubHistory.PubDate
-		newDocument.PartNum = pubHistory.Part
+		newDocument.PartNum = partNum
+		newDocument.PublicUrl = publicUrl
 
 		documentsMap[key] = newDocument
 		if entry.Md5 != "" {
@@ -329,4 +334,20 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+// Helper function to remove leading and trailing single quotes, if present.
+// Otherwise returns the original string untouched.
+// The SQL dump format seems to write out a string with spaces surrounded by single quotes.
+func StripOptionalLeadingAndTrailingSingleQuotes(candidate string) string {
+	if len(candidate) == 0 {
+		return candidate
+	}
+	result := candidate
+	if (result[0] == '\'') && (result[len(result)-1] == '\'') {
+		result = result[1 : len(result)-1]
+		// fmt.Printf("removed quotes from: [%s]\n", candidate)
+		// fmt.Printf("result is          :  [%s]\n", result)
+	}
+	return result
 }
