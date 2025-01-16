@@ -3,6 +3,7 @@ package main
 import (
 	"docs-to-yaml/internal/document"
 	"docs-to-yaml/internal/persistentstore"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -26,10 +27,23 @@ var vaxhaven_prefix = "http://www.vaxhaven.com"
 func main() {
 
 	vaxhaven_data := "data/VaxHaven.txt"
-	output_file := "bin/vaxhaven.yaml"
+	output_file := flag.String("yaml-output", "", "filepath of the output file to hold the generated yaml")
 	fileSizeStoreFilename := "bin/filesize.store"
 	fileSizeStoreCreate := true
 	verbose := false
+
+	flag.Parse()
+
+	fatal_error_seen := false
+
+	if *output_file == "" {
+		log.Print("--yaml-output is mandatory - specify an output YAML file")
+		fatal_error_seen = true
+	}
+
+	if fatal_error_seen {
+		log.Fatal("Unable to continue because of one or more fatal errors")
+	}
 
 	fileSizeStoreInstantiation := persistentstore.Store[string, int64]{}
 	fileSizeStore, err := fileSizeStoreInstantiation.Init(fileSizeStoreFilename, fileSizeStoreCreate, verbose)
@@ -45,7 +59,7 @@ func main() {
 	fileSizeStore.Save(fileSizeStoreFilename)
 
 	// Write the output YAML file
-	err = document.WriteDocumentsMapToOrderedYaml(documentsMap, output_file)
+	err = document.WriteDocumentsMapToOrderedYaml(documentsMap, *output_file)
 	if err != nil {
 		log.Fatal("Failed YAML write: ", err)
 	}
