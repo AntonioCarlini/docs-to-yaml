@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"docs-to-yaml/internal/document"
 	"encoding/csv"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -301,6 +302,22 @@ func main() {
 	pubHistoryMap := parseManxPubHistoryTable("data/manx-mysql-dump-20100609-PUB_HISTORY")
 	fmt.Println("PUBHISTORY size", len(pubHistoryMap))
 
+	output_yaml_file := flag.String("yaml-output", "", "filepath of the output file to hold the generated yaml")
+	output_md5_file := flag.String("md5-output", "", "filepath of the output file to hold the generated yaml")
+
+	flag.Parse()
+
+	fatal_error_seen := false
+
+	if *output_yaml_file == "" {
+		log.Print("--yaml-output is mandatory - specify an output YAML file")
+		fatal_error_seen = true
+	}
+
+	if fatal_error_seen {
+		log.Fatal("Unable to continue because of one or more fatal errors")
+	}
+
 	// We want to produce a map of unique documents.
 	// If an MD5 is present, that's enough to guarantee uniqueness.
 	// If no MD5 is present, use the part number
@@ -371,7 +388,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = os.WriteFile("bin/manx-documents.yaml", data, 0644)
+	err = os.WriteFile(*output_yaml_file, data, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -381,10 +398,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = os.WriteFile("bin/manx-md5.yaml", manxData, 0644)
-	if err != nil {
-		log.Fatal(err)
+	// The output MD5 file is optional
+	if *output_md5_file != "" {
+		err = os.WriteFile(*output_md5_file, manxData, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
+
 }
 
 // Helper function to remove leading and trailing single quotes, if present.

@@ -19,10 +19,12 @@ endef
 GO_PROGRAMS += bitsavers-to-yaml
 GO_PROGRAMS += file-tree-to-yaml
 GO_PROGRAMS += local-archive-to-yaml
+GO_PROGRAMS += manx-to-yaml
 GO_PROGRAMS += vaxhaven-to-yaml
 GO_PROGRAMS += yaml-to-csv
 
 YAML_OUTPUT += bin/yaml/bitsavers.yaml
+YAML_OUTPUT += bin/yaml/manx.yaml
 YAML_OUTPUT += bin/yaml/vaxhaven.yaml
 
 BIN_DIR = bin
@@ -40,10 +42,13 @@ all: $(foreach PRG,$(GO_PROGRAMS),bin/$(PRG))
 all: $(eval $(foreach PRG,$(GO_PROGRAMS),$(call go_build,$(PRG))))
 
 bin/yaml/bitsavers.yaml: bin/bitsavers-to-yaml data/VaxHaven.txt
-	bin/bitsavers-to-yaml --yaml-output bin/yaml/bitsavers.yaml
+	bin/bitsavers-to-yaml --yaml-output $@
 
 bin/yaml/vaxhaven.yaml: bin/vaxhaven-to-yaml data/bitsavers-IndexByDate.txt
-	bin/vaxhaven-to-yaml  --yaml-output bin/yaml/vaxhaven.yaml
+	bin/vaxhaven-to-yaml  --yaml-output $@
+
+bin/yaml/manx.yaml: bin/manx-to-yaml data/manx-mysql-dump-20100609-COPY data/manx-mysql-dump-20100609-PUB data/manx-mysql-dump-20100609-PUB_HISTORY
+	bin/manx-to-yaml  --yaml-output $@
 
 yaml: all
 
