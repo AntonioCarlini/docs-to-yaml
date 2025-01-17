@@ -2,6 +2,7 @@ package main
 
 import (
 	"docs-to-yaml/internal/document"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -91,6 +92,85 @@ func main() {
 		{"md5sum", MF_MD5, false, false, nil},
 	}
 
+	yamlDocumentsMap, err := HandleMetalFiles(treePrefix, metafiles)
+	if err != nil {
+		fmt.Println(err)
+		if !*fullyCheck {
+			log.Fatal("Stopping because of FATAL error.")
+		}
+	}
+
+	// Accumulate the relative path to each file under the root, ignoring any directories.
+	archiveDocumentsRelativeFilePaths := make(map[string]string)
+	err = filepath.WalkDir(treePrefix, func(path string, d fs.DirEntry, err error) error {
+		if !d.IsDir() {
+			if path != "index.csv" && path != "index.yaml" {
+				archiveDocumentsRelativeFilePaths[path[treePrefixLength:]] = path[treePrefixLength:]
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Fatalf("impossible to walk directories: %s", err)
+	}
+
+	// TODO Temporary display of paths
+	if *verbose {
+		for _, doc := range archiveDocumentsRelativeFilePaths {
+			fmt.Printf("Found: %s\n", doc)
+		}
+	}
+
+	// Verify that every file in the tree appears in the YAML and that every file in YAML appears in the tree
+	// Start by building maps to make the checks simpler
+	yamlDocsByPath := make(map[string]Document)
+	for _, doc := range yamlDocumentsMap {
+		yamlDocsByPath[doc.Filepath] = doc
+	}
+
+	filesRepresentedCorrectly := true
+	// TODO need to build map of CSV documents
+
+	// Verify that every document in the tree appears in the YAML
+	for _, docPath := range archiveDocumentsRelativeFilePaths {
+		if _, present := yamlDocsByPath[docPath]; !present {
+			if docPath != "index.csv" && docPath != "index.yaml" {
+				fmt.Printf("FATAL: Document missing from index.yaml: %s\n", docPath)
+				filesRepresentedCorrectly = false
+			}
+		} else {
+			if *verbose {
+				fmt.Printf("Document present in index.yaml: %s\n", docPath)
+			}
+		}
+	}
+
+	if !filesRepresentedCorrectly {
+		fmt.Println("FATAL: Some files missing from index or not present in tree")
+		if !*fullyCheck {
+			log.Fatal("Stopping because of FATAL error.")
+		}
+	}
+
+	fmt.Printf("Found (in YAML) %d documents\n", len(yamlDocumentsMap))
+
+}
+
+// A helper function that checks for possibly problematic characters
+func HasProblematicCharacters(data *[]byte) bool {
+
+	for _, ch := range *data {
+		if ch > 0x7F {
+			// At least one non-7-bit ASCII character found
+			return false
+		}
+	}
+
+	return true
+}
+
+func HandleMetalFiles(treePrefix string, metafiles []MetaFiles) (map[string]Document, error) {
+
 	documentsMap := make(map[string]Document)
 
 	var problematic_essential_files []string
@@ -128,76 +208,14 @@ func main() {
 
 	}
 
+	if len(problematic_essential_files) > 0 {
+		fmt.Println("FATAL: Missing essential file(s): ", strings.Join(problematic_essential_files, ","))
+	}
+
 	if major_issue {
-		fmt.Print("FATAL: Missing essential file(s): ", strings.Join(problematic_essential_files, ","))
-		if !*fullyCheck {
-			log.Fatal("Stopping because of FATAL error.")
-		}
+		return documentsMap, errors.New("FATAL error checking essential metadata files")
+	} else {
+
+		return documentsMap, nil
 	}
-
-	// Accumulate the relative path to each file under the root, ignoring any directories.
-	archiveDocumentsRelativeFilePaths := make(map[string]string)
-	err := filepath.WalkDir(treePrefix, func(path string, d fs.DirEntry, err error) error {
-		if !d.IsDir() {
-			if path != "index.csv" && path != "index.yaml" {
-				archiveDocumentsRelativeFilePaths[path[treePrefixLength:]] = path[treePrefixLength:]
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		log.Fatalf("impossible to walk directories: %s", err)
-	}
-
-	// TODO Temporary display of paths
-	if *verbose {
-		for _, doc := range archiveDocumentsRelativeFilePaths {
-			fmt.Printf("Found: %s\n", doc)
-		}
-	}
-
-	// Verify that every file in the tree appears in the YAML and that every file in YAML appears in the tree
-	// Start by building maps to make the checks simpler
-	yamlDocsByPath := make(map[string]Document)
-	for _, doc := range documentsMap {
-		yamlDocsByPath[doc.Filepath] = doc
-	}
-
-	filesRepresentedCorrectly := true
-	// TODO need to build map of CSV documents
-
-	// Verify that every document in the tree appears in the YAML
-	for _, docPath := range archiveDocumentsRelativeFilePaths {
-		if _, present := yamlDocsByPath[docPath]; !present {
-			fmt.Printf("FATAL: Document missing from index.yaml: %s\n", docPath)
-			filesRepresentedCorrectly = false
-		} else {
-			if *verbose {
-				fmt.Printf("Document present in index.yaml: %s\n", docPath)
-			}
-		}
-	}
-
-	if !filesRepresentedCorrectly {
-		fmt.Printf("FATAL: Some files missing from index or not present in tree")
-		if !*fullyCheck {
-			log.Fatal("Stopping because of FATAL error.")
-		}
-	}
-
-	fmt.Printf("Found (in YAML) %d documents\n", len(documentsMap))
-
-}
-
-// A helper function that checks for possibly problematic characters
-func HasProblematicCharacters(data *[]byte) bool {
-
-	for _, ch := range *data {
-		if ch > 0x7F {
-			// At least one non-7-bit ASCII character found
-			return false
-		}
-	}
-
-	return true
 }
