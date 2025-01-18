@@ -89,7 +89,7 @@ func main() {
 	metafiles := []MetaFiles{
 		{"index.csv", MF_CSV, false, false, nil},
 		{"index.yaml", MF_YAML, false, false, nil},
-		{"md5sum", MF_MD5, false, false, nil},
+		{"md5sums", MF_MD5, false, false, nil},
 	}
 
 	yamlDocumentsMap, csvRecords, md5Documents, err := HandleMetalFiles(treePrefix, metafiles)
@@ -145,7 +145,7 @@ func main() {
 		// Verify that every document in the tree appears in the YAML
 		for _, docPath := range archiveDocumentsRelativeFilePaths {
 			if _, present := yamlDocsByPath[docPath]; !present {
-				if docPath != "index.csv" && docPath != "index.yaml" {
+				if docPath != "index.csv" && docPath != "index.yaml" && docPath != "md5sums" {
 					fmt.Printf("FATAL: Document missing from index.yaml: %s\n", docPath)
 					filesRepresentedCorrectly = false
 				}
@@ -170,7 +170,7 @@ func main() {
 		// Verify that every document in the tree appears in the CSV
 		for _, docPath := range archiveDocumentsRelativeFilePaths {
 			if _, present := csvDocsByPath[docPath]; !present {
-				if docPath != "index.csv" && docPath != "index.yaml" {
+				if docPath != "index.csv" && docPath != "index.yaml" && docPath != "md5sums" {
 					fmt.Printf("FATAL: Document missing from index.csv: %s\n", docPath)
 					filesRepresentedCorrectly = false
 				}
@@ -195,7 +195,7 @@ func main() {
 		// Verify that every document in the tree appears in the md5sum
 		for _, docPath := range archiveDocumentsRelativeFilePaths {
 			if _, present := md5Documents[docPath]; !present {
-				if docPath != "index.csv" && docPath != "index.yaml" {
+				if docPath != "index.csv" && docPath != "index.yaml" && docPath != "md5sums" {
 					fmt.Printf("FATAL: Document missing from md5sum: %s\n", docPath)
 					filesRepresentedCorrectly = false
 				}
@@ -301,7 +301,20 @@ func HandleMetalFiles(treePrefix string, metafiles []MetaFiles) (map[string]Docu
 	var problematic_essential_files []string
 	major_issue := false
 	for _, mf := range metafiles {
-		content, err := os.ReadFile(treePrefix + mf.path)
+		filePath := treePrefix + mf.path
+
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			fmt.Printf("FATAL: Cannot stat %s\n", mf.path)
+			major_issue = true
+		} else {
+			mode := fileInfo.Mode()
+			if (mode&0200 != 0) || (mode&0020 != 0) || (mode&0002 != 0) {
+				fmt.Printf("FATAL: Metafile is writeable %s (mode=%o)\n", mf.path, mode)
+				major_issue = true
+			}
+		}
+		content, err := os.ReadFile(filePath)
 		if err == nil {
 			mf.present = true
 			mf.correct = true
@@ -360,7 +373,7 @@ func HandleMetalFiles(treePrefix string, metafiles []MetaFiles) (map[string]Docu
 
 			}
 		} else {
-			fmt.Printf("FATAL: Cannot find %s: %v\n", mf.path, err)
+			fmt.Printf("FATAL: Cannot read %s: %v\n", mf.path, err)
 			problematic_essential_files = append(problematic_essential_files, mf.path)
 			major_issue = true
 		}
