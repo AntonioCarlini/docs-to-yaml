@@ -76,10 +76,6 @@ func main() {
 
 	flag.Parse()
 
-	if *verbose {
-		fmt.Printf("Program started\n")
-	}
-
 	// Work out how long the root path is; this will be removed from the result to leave a relative path.
 	// (Ensure that the prefix finishes with a /)
 	treePrefix := *treeRoot
@@ -115,13 +111,13 @@ func main() {
 		return nil
 	})
 	if err != nil {
-		log.Fatalf("impossible to walk directories: %s", err)
+		log.Fatalf("FATAL: impossible to walk directories: %s", err)
 	}
 
 	// TODO Temporary display of paths
 	if *verbose {
 		for _, doc := range archiveDocumentsRelativeFilePaths {
-			fmt.Printf("Found: %s\n", doc)
+			fmt.Printf("INFO:  Found: %s\n", doc)
 		}
 	}
 
@@ -138,75 +134,134 @@ func main() {
 	csvDocsByPath := make(map[string]string)
 	for _, record := range csvRecords {
 		if record[0] == "Doc" {
-			csvDocsByPath[record[2]] = record[2]
+			csvDocsByPath[record[2]] = record[6]
 		}
 	}
 
 	filesRepresentedCorrectly := true
 
-	// Verify that every document in the tree appears in the YAML
-	for _, docPath := range archiveDocumentsRelativeFilePaths {
-		if _, present := yamlDocsByPath[docPath]; !present {
-			if docPath != "index.csv" && docPath != "index.yaml" {
-				fmt.Printf("FATAL: Document missing from index.yaml: %s\n", docPath)
+	// Verify the YAML file vs tree only if the YAML file is present (its absence will be noted as FATAL anyway)
+	if len(yamlDocsByPath) > 0 {
+		// Verify that every document in the tree appears in the YAML
+		for _, docPath := range archiveDocumentsRelativeFilePaths {
+			if _, present := yamlDocsByPath[docPath]; !present {
+				if docPath != "index.csv" && docPath != "index.yaml" {
+					fmt.Printf("FATAL: Document missing from index.yaml: %s\n", docPath)
+					filesRepresentedCorrectly = false
+				}
+			} else {
+				if *verbose {
+					fmt.Printf("INFO:  Document present in index.yaml: %s\n", docPath)
+				}
+			}
+		}
+
+		// Verify that every document listed in the YAML appears in the tree
+		for _, doc := range yamlDocumentsMap {
+			if _, present := archiveDocumentsRelativeFilePaths[doc.Filepath]; !present {
+				fmt.Printf("FATAL: Document in index.yaml not present in file tree: %s\n", doc.Filepath)
 				filesRepresentedCorrectly = false
 			}
-		} else {
-			if *verbose {
-				fmt.Printf("Document present in index.yaml: %s\n", docPath)
+		}
+	}
+
+	// Verify the CSV file vs tree only if the CSV file is present (its absence will be noted as FATAL anyway)
+	if len(csvDocsByPath) > 0 {
+		// Verify that every document in the tree appears in the CSV
+		for _, docPath := range archiveDocumentsRelativeFilePaths {
+			if _, present := csvDocsByPath[docPath]; !present {
+				if docPath != "index.csv" && docPath != "index.yaml" {
+					fmt.Printf("FATAL: Document missing from index.csv: %s\n", docPath)
+					filesRepresentedCorrectly = false
+				}
+			} else {
+				if *verbose {
+					fmt.Printf("INFO:  Document present in index.csv: %s\n", docPath)
+				}
 			}
 		}
-	}
 
-	// Verify that every document listed in the YAML appears in the tree
-	for _, doc := range yamlDocumentsMap {
-		if _, present := archiveDocumentsRelativeFilePaths[doc.Filepath]; !present {
-			fmt.Printf("FATAL: Document in index.yaml not present in file tree: %s\n", doc.Filepath)
-			filesRepresentedCorrectly = false
-		}
-	}
-
-	// Verify that every document in the tree appears in the CSV
-	for _, docPath := range archiveDocumentsRelativeFilePaths {
-		if _, present := csvDocsByPath[docPath]; !present {
-			if docPath != "index.csv" && docPath != "index.yaml" {
-				fmt.Printf("FATAL: Document missing from index.csv: %s\n", docPath)
+		// Verify that every document in the CSV appears in the tree
+		for path, _ := range csvDocsByPath {
+			if _, present := archiveDocumentsRelativeFilePaths[path]; !present {
+				fmt.Printf("FATAL: Document in index.csv not present in file tree: %s\n", path)
 				filesRepresentedCorrectly = false
 			}
-		} else {
-			if *verbose {
-				fmt.Printf("Document present in index.csv: %s\n", docPath)
+		}
+	}
+
+	// Verify the md5sum file vs tree only if the md5sum file is present (its absence will be noted as FATAL anyway)
+	if len(md5Documents) > 0 {
+		// Verify that every document in the tree appears in the md5sum
+		for _, docPath := range archiveDocumentsRelativeFilePaths {
+			if _, present := md5Documents[docPath]; !present {
+				if docPath != "index.csv" && docPath != "index.yaml" {
+					fmt.Printf("FATAL: Document missing from md5sum: %s\n", docPath)
+					filesRepresentedCorrectly = false
+				}
+			} else {
+				if *verbose {
+					fmt.Printf("INFO:  Document present in md5sum: %s\n", docPath)
+				}
 			}
 		}
-	}
 
-	// Verify that every document in the CSV appears in the tree
-	for _, doc := range csvDocsByPath {
-		if _, present := archiveDocumentsRelativeFilePaths[doc]; !present {
-			fmt.Printf("FATAL: Document in index.yaml not present in file tree: %s\n", doc)
-			filesRepresentedCorrectly = false
-		}
-	}
-
-	// Verify that every document in the tree appears in the md5sum
-	for _, docPath := range archiveDocumentsRelativeFilePaths {
-		if _, present := md5Documents[docPath]; !present {
-			if docPath != "index.csv" && docPath != "index.yaml" {
-				fmt.Printf("FATAL: Document missing from md5sum: %s\n", docPath)
+		// Verify that every document in the md5sum file appears in the tree
+		for path, _ := range md5Documents {
+			if _, present := archiveDocumentsRelativeFilePaths[path]; !present {
+				fmt.Printf("FATAL: Document in index.yaml not present in file tree: %s\n", path)
 				filesRepresentedCorrectly = false
 			}
-		} else {
-			if *verbose {
-				fmt.Printf("Document present in md5sum: %s\n", docPath)
+		}
+	}
+
+	// Verify MD5 checksums between YAML and CSV
+	if (len(yamlDocsByPath) > 0) && (len(csvDocsByPath) > 0) {
+		fmt.Println("INFO:  Checking YAML vs CSV")
+		for path, doc := range yamlDocsByPath {
+			if csvDocMd5, present := csvDocsByPath[path]; !present {
+				fmt.Printf("FATAL: checking YAML MD5 vs CSV MD5, document missing in CSV: %s\n", path)
+				filesRepresentedCorrectly = false
+			} else {
+				if doc.Md5 != csvDocMd5 {
+					fmt.Printf("FATAL: checking YAML MD5 vs CSV MD5, mismatch for: %s (YAML MD5=%s CSV MD5=%s\n", path, doc.Md5, csvDocMd5)
+					filesRepresentedCorrectly = false
+				}
 			}
 		}
 	}
 
-	// Verify that every document in the md5sum file appears in the tree
-	for path, _ := range md5Documents {
-		if _, present := archiveDocumentsRelativeFilePaths[path]; !present {
-			fmt.Printf("FATAL: Document in index.yaml not present in file tree: %s\n", path)
-			filesRepresentedCorrectly = false
+	// Verify MD5 checksums between YAML and md5sum
+	if (len(yamlDocsByPath) > 0) && (len(md5Documents) > 0) {
+		fmt.Println("INFO:  Checking YAML vs md5sum")
+		for path, doc := range yamlDocsByPath {
+			if md5Md5, present := md5Documents[path]; !present {
+				fmt.Printf("FATAL: checking YAML MD5 vs md5sum MD5, document missing in md5sum: %s\n", path)
+				filesRepresentedCorrectly = false
+			} else {
+				if doc.Md5 != md5Md5 {
+					fmt.Printf("FATAL: checking YAML MD5 vs md5sum MD5, mismatch for: %s (YAML MD5=%s md5sum MD5=%s\n", path, doc.Md5, md5Md5)
+					filesRepresentedCorrectly = false
+				}
+			}
+		}
+
+	}
+
+	// Verify MD5 checksums between CSV and md5sum
+	if (len(csvDocsByPath) > 0) && (len(md5Documents) > 0) {
+		fmt.Println("INFO:  Checking CSV vs md5sum")
+		for path, csvDocMd5 := range csvDocsByPath {
+			if md5Md5, present := md5Documents[path]; !present {
+				fmt.Printf("FATAL: checking CSV MD5 vs md5sum MD5, document missing in md5sum: %s\n", path)
+				filesRepresentedCorrectly = false
+			} else {
+				if csvDocMd5 != md5Md5 {
+					fmt.Printf("FATAL: checking YAML MD5 vs md5sum MD5, mismatch for: %s (YAML MD5=%s md5sum MD5=%s\n", path, csvDocMd5, md5Md5)
+					filesRepresentedCorrectly = false
+				}
+			}
+
 		}
 	}
 
@@ -217,7 +272,7 @@ func main() {
 		}
 	}
 
-	fmt.Printf("Found (in YAML) %d documents\n", len(yamlDocumentsMap))
+	fmt.Printf("INFO:  Found (in YAML) %d documents\n", len(yamlDocumentsMap))
 
 }
 
