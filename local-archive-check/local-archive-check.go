@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"docs-to-yaml/internal/document"
 	"encoding/csv"
@@ -11,6 +12,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v2"
@@ -94,7 +96,7 @@ func main() {
 		{"md5sum", MF_MD5, false, false, nil},
 	}
 
-	yamlDocumentsMap, csvRecords, err := HandleMetalFiles(treePrefix, metafiles)
+	yamlDocumentsMap, csvRecords, md5Documents, err := HandleMetalFiles(treePrefix, metafiles)
 	if err != nil {
 		fmt.Println(err)
 		if !*fullyCheck {
@@ -125,6 +127,7 @@ func main() {
 
 	// Verify that every file in the tree appears in the YAML and that every file in YAML appears in the tree
 	// Verify that every file in the tree appears in the CSV and that every file in CSV appears in the tree
+	// Verify that every file in the tree appears in the md5sum file and that every file in md5sum file appears in the tree
 
 	// Start by building maps to make the checks simpler
 	yamlDocsByPath := make(map[string]Document)
@@ -140,7 +143,6 @@ func main() {
 	}
 
 	filesRepresentedCorrectly := true
-	// TODO need to build map of CSV documents
 
 	// Verify that every document in the tree appears in the YAML
 	for _, docPath := range archiveDocumentsRelativeFilePaths {
@@ -186,9 +188,27 @@ func main() {
 		}
 	}
 
-	// TODO Verify that every document in the tree appears in the md5sum
+	// Verify that every document in the tree appears in the md5sum
+	for _, docPath := range archiveDocumentsRelativeFilePaths {
+		if _, present := md5Documents[docPath]; !present {
+			if docPath != "index.csv" && docPath != "index.yaml" {
+				fmt.Printf("FATAL: Document missing from md5sum: %s\n", docPath)
+				filesRepresentedCorrectly = false
+			}
+		} else {
+			if *verbose {
+				fmt.Printf("Document present in md5sum: %s\n", docPath)
+			}
+		}
+	}
 
-	// TODO Verify that every document in the md5sum appears in the tree
+	// Verify that every document in the md5sum file appears in the tree
+	for path, _ := range md5Documents {
+		if _, present := archiveDocumentsRelativeFilePaths[path]; !present {
+			fmt.Printf("FATAL: Document in index.yaml not present in file tree: %s\n", path)
+			filesRepresentedCorrectly = false
+		}
+	}
 
 	if !filesRepresentedCorrectly {
 		fmt.Println("FATAL: Some files missing from index or not present in tree")
@@ -217,10 +237,12 @@ func HasProblematicCharacters(data *[]byte) bool {
 // The metafiles include index.yaml and index.csv.
 // This function reads them, performs some minimal sanity checks and
 // then loads appropriate data to return to the caller.
-func HandleMetalFiles(treePrefix string, metafiles []MetaFiles) (map[string]Document, [][]string, error) {
+func HandleMetalFiles(treePrefix string, metafiles []MetaFiles) (map[string]Document, [][]string, map[string]string, error) {
 
 	documentsMap := make(map[string]Document)
 	var csvRecords [][]string
+	md5Map := make(map[string]string)
+
 	var problematic_essential_files []string
 	major_issue := false
 	for _, mf := range metafiles {
@@ -253,6 +275,31 @@ func HandleMetalFiles(treePrefix string, metafiles []MetaFiles) (map[string]Docu
 					}
 					// TODO perform minimal sanity checks: e.g. header record as expected
 				case MF_MD5:
+					// A line from md5sum should look like this:
+					// 4556f5bdf78aa195b18e06e35a64c89f *mvxaaig1.pdf
+					// That's exactly 32 characters of md5 checksum, a space, either a space or an asterisk and finally a filepath (relative to the md5sum)
+					// The asterisk is present if the checksum was generated in binary mode; on my Linux system the result is the same whether binary mode is selected or not.
+					md5Regex := regexp.MustCompile(`^([a-f0-9]{32})\s(?:\s|\*)(.+)$`)
+					scanner := bufio.NewScanner(bytes.NewReader(*mf.fileContents))
+					lineCount := 0
+					for scanner.Scan() {
+						line := scanner.Text()
+						lineCount += 1
+						// Match the line using the regex
+						matches := md5Regex.FindStringSubmatch(line)
+						if matches == nil {
+							fmt.Printf("FATAL: md5sum invalid format on line %d: %s", lineCount, line)
+							major_issue = true
+						}
+
+						md5sum := matches[1]
+						filepath := matches[2]
+						md5Map[filepath] = md5sum
+					}
+					if err := scanner.Err(); err != nil {
+						fmt.Printf("FATAL: md5sum record reading error for %s: %v", mf.path, err)
+						major_issue = true
+					}
 				case MF_Undefined:
 				}
 
@@ -270,9 +317,9 @@ func HandleMetalFiles(treePrefix string, metafiles []MetaFiles) (map[string]Docu
 	}
 
 	if major_issue {
-		return documentsMap, csvRecords, errors.New("FATAL error checking essential metadata files")
+		return documentsMap, csvRecords, md5Map, errors.New("FATAL error checking essential metadata files")
 	} else {
 
-		return documentsMap, csvRecords, nil
+		return documentsMap, csvRecords, md5Map, nil
 	}
 }
