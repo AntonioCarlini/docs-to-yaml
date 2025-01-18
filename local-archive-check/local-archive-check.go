@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"docs-to-yaml/internal/document"
+	"encoding/csv"
 	"errors"
 	"flag"
 	"fmt"
@@ -92,7 +94,7 @@ func main() {
 		{"md5sum", MF_MD5, false, false, nil},
 	}
 
-	yamlDocumentsMap, err := HandleMetalFiles(treePrefix, metafiles)
+	yamlDocumentsMap, csvRecords, err := HandleMetalFiles(treePrefix, metafiles)
 	if err != nil {
 		fmt.Println(err)
 		if !*fullyCheck {
@@ -122,10 +124,19 @@ func main() {
 	}
 
 	// Verify that every file in the tree appears in the YAML and that every file in YAML appears in the tree
+	// Verify that every file in the tree appears in the CSV and that every file in CSV appears in the tree
+
 	// Start by building maps to make the checks simpler
 	yamlDocsByPath := make(map[string]Document)
 	for _, doc := range yamlDocumentsMap {
 		yamlDocsByPath[doc.Filepath] = doc
+	}
+
+	csvDocsByPath := make(map[string]string)
+	for _, record := range csvRecords {
+		if record[0] == "Doc" {
+			csvDocsByPath[record[2]] = record[2]
+		}
 	}
 
 	filesRepresentedCorrectly := true
@@ -144,6 +155,40 @@ func main() {
 			}
 		}
 	}
+
+	// Verify that every document listed in the YAML appears in the tree
+	for _, doc := range yamlDocumentsMap {
+		if _, present := archiveDocumentsRelativeFilePaths[doc.Filepath]; !present {
+			fmt.Printf("FATAL: Document in index.yaml not present in file tree: %s\n", doc.Filepath)
+			filesRepresentedCorrectly = false
+		}
+	}
+
+	// Verify that every document in the tree appears in the CSV
+	for _, docPath := range archiveDocumentsRelativeFilePaths {
+		if _, present := csvDocsByPath[docPath]; !present {
+			if docPath != "index.csv" && docPath != "index.yaml" {
+				fmt.Printf("FATAL: Document missing from index.csv: %s\n", docPath)
+				filesRepresentedCorrectly = false
+			}
+		} else {
+			if *verbose {
+				fmt.Printf("Document present in index.csv: %s\n", docPath)
+			}
+		}
+	}
+
+	// Verify that every document in the CSV appears in the tree
+	for _, doc := range csvDocsByPath {
+		if _, present := archiveDocumentsRelativeFilePaths[doc]; !present {
+			fmt.Printf("FATAL: Document in index.yaml not present in file tree: %s\n", doc)
+			filesRepresentedCorrectly = false
+		}
+	}
+
+	// TODO Verify that every document in the tree appears in the md5sum
+
+	// TODO Verify that every document in the md5sum appears in the tree
 
 	if !filesRepresentedCorrectly {
 		fmt.Println("FATAL: Some files missing from index or not present in tree")
@@ -169,10 +214,13 @@ func HasProblematicCharacters(data *[]byte) bool {
 	return true
 }
 
-func HandleMetalFiles(treePrefix string, metafiles []MetaFiles) (map[string]Document, error) {
+// The metafiles include index.yaml and index.csv.
+// This function reads them, performs some minimal sanity checks and
+// then loads appropriate data to return to the caller.
+func HandleMetalFiles(treePrefix string, metafiles []MetaFiles) (map[string]Document, [][]string, error) {
 
 	documentsMap := make(map[string]Document)
-
+	var csvRecords [][]string
 	var problematic_essential_files []string
 	major_issue := false
 	for _, mf := range metafiles {
@@ -195,6 +243,15 @@ func HandleMetalFiles(treePrefix string, metafiles []MetaFiles) (map[string]Docu
 						major_issue = true
 					}
 				case MF_CSV:
+					reader := csv.NewReader(bytes.NewReader(*mf.fileContents))
+
+					// Read all the records from the CSV
+					csvRecords, err = reader.ReadAll()
+					if err != nil {
+						fmt.Printf("FATAL: CSV record reading error for %s: %v", mf.path, err)
+						major_issue = true
+					}
+					// TODO perform minimal sanity checks: e.g. header record as expected
 				case MF_MD5:
 				case MF_Undefined:
 				}
@@ -213,9 +270,9 @@ func HandleMetalFiles(treePrefix string, metafiles []MetaFiles) (map[string]Docu
 	}
 
 	if major_issue {
-		return documentsMap, errors.New("FATAL error checking essential metadata files")
+		return documentsMap, csvRecords, errors.New("FATAL error checking essential metadata files")
 	} else {
 
-		return documentsMap, nil
+		return documentsMap, csvRecords, nil
 	}
 }
