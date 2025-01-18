@@ -195,7 +195,8 @@ func main() {
 		// Verify that every document in the tree appears in the md5sum
 		for _, docPath := range archiveDocumentsRelativeFilePaths {
 			if _, present := md5Documents[docPath]; !present {
-				if docPath != "index.csv" && docPath != "index.yaml" && docPath != "md5sums" {
+				// md5sums is expected to contain all files including metadata files, other than itself
+				if docPath != "md5sums" {
 					fmt.Printf("FATAL: Document missing from md5sum: %s\n", docPath)
 					filesRepresentedCorrectly = false
 				}
