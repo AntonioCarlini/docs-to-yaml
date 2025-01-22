@@ -1,6 +1,7 @@
 package indexcsv
 
 import (
+	"bytes"
 	"docs-to-yaml/internal/document"
 	"encoding/csv"
 	"fmt"
@@ -10,7 +11,6 @@ import (
 
 type Document = document.Document
 
-// The Document struct is how per-electronic-document data is represented in YAML
 type IndexCsv struct {
 	RecordType  string // CSV Record Type
 	Title       int64  // Document Title
@@ -22,12 +22,13 @@ type IndexCsv struct {
 	Options     string // A string specifying rarer options
 }
 
-func WriteDocumentsToCsv(documents map[string]Document, filename string) error {
+// UNTESTED: WIP
+func WriteDocumentsToCsv(documents map[string]Document, filePath string) error {
 
-	csvFile, err := os.Create(filename)
+	csvFile, err := os.Create(filePath)
 
 	if err != nil {
-		log.Fatalf("CSV file open failed for %s, %v\n", filename, err)
+		log.Fatalf("CSV file open failed for %s, %v\n", filePath, err)
 	}
 	defer csvFile.Close()
 
@@ -56,6 +57,70 @@ func WriteDocumentsToCsv(documents map[string]Document, filename string) error {
 	}
 
 	return nil
+}
+
+// UNTESTED: WIP
+func ReadDocumentsFromCsv(filePath string) (map[string]Document, error) {
+
+	docs := make(map[string]Document)
+
+	fatal_error_seen := false
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		fmt.Printf("CSV file open failed for %s, %v\n", filePath, err)
+		return docs, nil
+	}
+
+	// Read all the records from the CSV
+	reader := csv.NewReader(bytes.NewReader(content))
+	csvRecords, err := reader.ReadAll()
+	if err != nil {
+		fmt.Printf("FATAL: CSV record reading error for %s: %v", filePath, err)
+		return docs, err
+	}
+
+	// The first record must be the header
+	// header := []string{"Record", "Title", "File", "URL", "Date", "Part Number", "MD5 Checksum", "Options"}
+
+	// Every "Doc" record needs to be converted into a Document object
+	for _, rec := range csvRecords {
+		if rec[0] != "Doc" {
+			continue
+		}
+		var newDocument Document
+
+		newDocument.Title = rec[1]
+		newDocument.Filepath = rec[2]
+		newDocument.PublicUrl = rec[3]
+		newDocument.PubDate = rec[4]
+		newDocument.PartNum = rec[5]
+		newDocument.Md5 = rec[6]
+		// TODO parse rec[7], which contains options, which includes 'collection=XXXX'
+		// newDocument.Collection = ??
+		newDocument.Format, err = document.DetermineDocumentFormat(rec[2])
+		if err != nil {
+			fmt.Printf("FATAL: CSV record reading error for %s: %v", rec[2], err)
+			fatal_error_seen = true
+		}
+		// newDocument.Size = filestats.Size()
+		// newDocument.PdfCreator = pdfMetadata.Creator
+		// newDocument.PdfProducer = pdfMetadata.Producer
+		// newDocument.PdfVersion = pdfMetadata.Format
+		// newDocument.PdfModified = pdfMetadata.Modified
+		// newDocument.Collection = "local-archive"
+
+		// TODO what to do if MD5 not present?
+		key := document.BuildKeyFromDocument(newDocument)
+		docs[key] = newDocument
+
+	}
+
+	if fatal_error_seen {
+		log.Fatal("FATAL: Stopping because of above FATAL error(s)")
+	}
+
+	return docs, nil
 }
 
 // This table shows the fields in a CSV record and the Document members from which each CSV field is derived.
