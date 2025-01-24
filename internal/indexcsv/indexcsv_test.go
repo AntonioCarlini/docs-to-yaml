@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -46,8 +47,8 @@ func TestWriteDocumentsToCsv(t *testing.T) {
 	for idx, record := range csvRecords {
 		if idx == 0 {
 			// First record must be the header
-			if (record[0] != "Record") || (record[1] != "Title") {
-				t.Fatalf("FATAL: CSV header incorrect for %s, %v", tempFilename, record)
+			if !reflect.DeepEqual(record, CsvHeadings()) {
+				t.Fatalf("FATAL: CSV header incorrect for %s:\n      found: %v\n   expected: %v", tempFilename, record, CsvHeadings())
 			}
 		} else {
 			key := record[6]

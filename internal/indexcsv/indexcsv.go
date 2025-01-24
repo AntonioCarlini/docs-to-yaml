@@ -22,6 +22,8 @@ type IndexCsv struct {
 	Options     string // A string specifying rarer options
 }
 
+var CsvHeader = []string{"Record", "Title", "File", "URL", "Date", "Part Number", "MD5 Checksum", "Options"}
+
 // UNTESTED: WIP
 func WriteDocumentsToCsv(documents map[string]Document, filePath string) error {
 
@@ -41,8 +43,7 @@ func WriteDocumentsToCsv(documents map[string]Document, filePath string) error {
 	csvWriter := csv.NewWriter(csvFile)
 	defer csvWriter.Flush()
 
-	header := []string{"Record", "Title", "File", "URL", "Date", "Part Number", "MD5 Checksum", "Options"}
-	err = csvWriter.Write(header)
+	err = csvWriter.Write(CsvHeader)
 	if err != nil {
 		fmt.Println("Error writing header to CSV:", err)
 		return err
@@ -150,4 +151,9 @@ func ConvertDocumentToCsv(doc Document) []string {
 		doc.Md5,
 		options,
 	}
+}
+
+// Helper for test code
+func CsvHeadings() []string {
+	return CsvHeader
 }
