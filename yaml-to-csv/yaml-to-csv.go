@@ -2,7 +2,7 @@ package main
 
 import (
 	"docs-to-yaml/internal/document"
-	"encoding/csv"
+	"docs-to-yaml/internal/indexcsv"
 	"flag"
 	"fmt"
 	"log"
@@ -39,7 +39,7 @@ func main() {
 		log.Fatal("Please supply a filespec for the output CSV")
 	}
 
-	var csvDocs [][]string
+	totalDocumentsMap := make(map[string]Document)
 
 	for _, yaml_file := range flag.Args() {
 		documentsMap := make(map[string]Document)
@@ -56,65 +56,17 @@ func main() {
 			log.Fatalf("Unmarshal error for %s: %v", yaml_file, err)
 		}
 
-		for _, doc := range documentsMap {
-			csvDocs = append(csvDocs, ConvertDocumentToCsv(doc))
+		for key, doc := range documentsMap {
+			totalDocumentsMap[key] = doc
 		}
-
 		if *verbose {
-			fmt.Printf("Finished procesing YAML %s, having found %d docs, for a total of %d CSV records\n", yaml_file, len(documentsMap), len(csvDocs))
+			fmt.Printf("Finished procesing YAML %s, having found %d docs, for a total of %d CSV records\n", yaml_file, len(documentsMap), len(totalDocumentsMap))
 		}
 	}
-	fmt.Printf("Found %d records in total\n", len(csvDocs))
+	fmt.Printf("Found %d records in total\n", len(totalDocumentsMap))
 
-	csvFile, err := os.Create(*csvOutputFilename)
-
+	err := indexcsv.WriteDocumentsToCsv(totalDocumentsMap, *csvOutputFilename)
 	if err != nil {
-		log.Fatalf("CSV file open failed for %s, %v\n", *csvOutputFilename, err)
-	}
-	defer csvFile.Close()
-
-	csvWriter := csv.NewWriter(csvFile)
-	defer csvWriter.Flush()
-
-	header := []string{"Record", "Title", "File", "URL", "Date", "Part Number", "MD5 Checksum", "Options"}
-	err = csvWriter.Write(header)
-	if err != nil {
-		fmt.Println("Error writing header to CSV:", err)
-	}
-
-	for _, rec := range csvDocs {
-		err = csvWriter.Write(rec)
-		if err != nil {
-			fmt.Println("Error writing record to CSV:", err)
-		}
-	}
-}
-
-// This table shows the fields in a CSV record and the Document members from which each CSV field is derived.
-//
-// | Field #  | Contents             | CSV field
-// |----------|----------------------|----------------
-// |       1  | _ Record type_       | "Doc" (fixed text)
-// |       2  | _Document title_     | .Title
-// |       3  | _Local file path_    | .Filepath
-// |       4  | _Original URL_       | .PublicUrl
-// |       5  | _Document date_      | .PubDate
-// |       6  | _Part number_        | .PartNum
-// |       7  | _Options_            |
-//
-// The CSV 'options' field contains the following sub-options:
-//
-//	collection='' taken from Document.Collection
-func ConvertDocumentToCsv(doc Document) []string {
-	options := fmt.Sprintf("'collection=%s'", doc.Collection)
-	return []string{
-		"Doc",
-		doc.Title,
-		doc.Filepath,
-		doc.PublicUrl,
-		doc.PubDate,
-		doc.PartNum,
-		doc.Md5,
-		options,
+		fmt.Println("Error writing csv copy:", err)
 	}
 }
