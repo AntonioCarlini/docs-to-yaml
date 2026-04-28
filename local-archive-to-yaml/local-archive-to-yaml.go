@@ -43,7 +43,7 @@ package main
 //
 // Run the program from the repo top level like this:
 //
-//   go run local-archive-to-yaml/local-archive-to-yaml.go --verbose --md5-cache bin/md5.store  --md5-sum --indirect-file INDIRECT.txt --yaml DOCS.YAML
+//   go run local-archive-to-yaml/local-archive-to-yaml.go --verbose --md5-cache cache/md5.store  --md5-sum --indirect-file INDIRECT.txt --yaml DOCS.YAML
 //
 //  --verbose turns on additional messages that may be useful in tracking program operation
 //  --md5-sum causes MD5 checksums to be calculated if not already in the store

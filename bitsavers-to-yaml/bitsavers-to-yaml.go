@@ -49,10 +49,9 @@ func main() {
 
 	bitsavers_index_filename := "data/bitsavers-IndexByDate.txt"
 	bitsavers_md5_filename := "data/site.bitsavers.2021-10-01.md5"
-	// output_file := "bin/bitsavers.yaml"
 	output_file := flag.String("yaml-output", "", "filepath of the output file to hold the generated yaml")
 	verbose := false
-	md5CacheFilename := "bin/md5.store"
+	md5CacheFilename := "cache/md5.store"
 	md5CacheCreate := false
 
 	flag.Parse()

@@ -28,7 +28,7 @@ func main() {
 
 	vaxhaven_data := "data/VaxHaven.txt"
 	output_file := flag.String("yaml-output", "", "filepath of the output file to hold the generated yaml")
-	fileSizeStoreFilename := "bin/filesize.store"
+	fileSizeStoreFilename := "cache/filesize.store"
 	fileSizeStoreCreate := true
 	verbose := false
 

@@ -24,7 +24,7 @@ import (
 //
 // Run the program from the repo top level like this:
 //
-//   go run local-archive-check/local-archive-check.go --verbose --md5-cache bin/md5.store  --force-md5-sum --strict --tree-root ROOT
+//   go run local-archive-check/local-archive-check.go --verbose --md5-cache cache/md5.store  --force-md5-sum --strict --tree-root ROOT
 //
 //  --verbose        turns on additional messages that may be useful in tracking program operation
 //  --md5-cache      checks index.* MD5 checksums against those in the store

@@ -24,6 +24,7 @@ GO_PROGRAMS += vaxhaven-to-yaml
 GO_PROGRAMS += yaml-to-csv
 
 YAML_OUTPUT += bin/yaml/bitsavers.yaml
+YAML_OUTPUT += bin/yaml/local-archive.yaml
 YAML_OUTPUT += bin/yaml/manx.yaml
 YAML_OUTPUT += bin/yaml/vaxhaven.yaml
 
@@ -41,15 +42,18 @@ all: $(foreach PRG,$(GO_PROGRAMS),bin/$(PRG))
 
 all: $(eval $(foreach PRG,$(GO_PROGRAMS),$(call go_build,$(PRG))))
 
-bin/yaml/bitsavers.yaml: bin/bitsavers-to-yaml data/VaxHaven.txt
+all: ${YAML_OUTPUT}
+
+bin/yaml/bitsavers.yaml: data/bitsavers-IndexByDate.txt
 	bin/bitsavers-to-yaml --yaml-output $@
 
-bin/yaml/vaxhaven.yaml: bin/vaxhaven-to-yaml data/bitsavers-IndexByDate.txt
+bin/yaml/vaxhaven.yaml: data/VaxHaven.txt
 	bin/vaxhaven-to-yaml  --yaml-output $@
 
-bin/yaml/manx.yaml: bin/manx-to-yaml data/manx-mysql-dump-20100609-COPY data/manx-mysql-dump-20100609-PUB data/manx-mysql-dump-20100609-PUB_HISTORY
+bin/yaml/manx.yaml: data/manx-mysql-dump-20100609-COPY data/manx-mysql-dump-20100609-PUB data/manx-mysql-dump-20100609-PUB_HISTORY
 	bin/manx-to-yaml  --yaml-output $@
 
-yaml: all
+bin/yaml/local-archive.yaml: data/indirect.txt
+	bin/local-archive-to-yaml --md5-cache cache/md5.store  --md5-sum --indirect-file data/indirect.root.txt --yaml-output $@
 
-yaml: $(YAML_OUTPUT)
+

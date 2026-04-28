@@ -9,6 +9,7 @@ This currently covers the collection of computer-related manuals, mostly produce
 |--------------------------------|-------------------------------------------------------------------------------------------|
 | bin/                           | output files
 | bitsavers-to-yaml/             | produces bin/bitsavers.yaml, describing documents on bitsavers
+| cache/                         | ?
 | csv/                           | ?
 | data/                          | input files
 | file-tree-to-yaml/             | ?
@@ -24,9 +25,9 @@ This currently covers the collection of computer-related manuals, mostly produce
 
 ### Inputs ###
 
-_bin/filesize.store_ is a YAML file that lists URL or local file path against filesize. It is intended to act as a cache of file size data that would otherwise have to be read from either a local filesystem or from a website.
+_cache/filesize.store_ is a YAML file that lists URL or local file path against filesize. It is intended to act as a cache of file size data that would otherwise have to be read from either a local filesystem or from a website.
 
-_bin/md5.store_ is a YAML file that lists URL or local file path against that file's MD5 checksum. It is intended to act as a cache of MD5 checksums and speeds up processing by avoiding re-computing MD5 checksums unless absolutely necessary.
+_cache/md5.store_ is a YAML file that lists URL or local file path against that file's MD5 checksum. It is intended to act as a cache of MD5 checksums and speeds up processing by avoiding re-computing MD5 checksums unless absolutely necessary.
 
 _data/bitsavers-IndexByDate.txt_ is taken unchanged from https://bitsavers.org/pdf/IndexByDate.txt (or any official mirror). It should be re-fetched whenever significant new data is available.
 
@@ -65,8 +66,8 @@ This program takes a cut-down portion of the SQL dump of the manx (a catalogue o
 This program produces a YAML file that describes each document found on http://www.vaxhaven.com.
 
 It reads _data/VaxHaven.txt_, processes it and outputs _bin/vaxhaven.yaml_.  
-_bin/filesize.store_ may be updated.  
-_bin/md5.store_ neither used nor updated.
+_cache/filesize.store_ may be updated.  
+_cache/md5.store_ neither used nor updated.
 
 ### yaml-to-csv ###
 
