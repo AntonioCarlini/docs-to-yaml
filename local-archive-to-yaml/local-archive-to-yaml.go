@@ -83,13 +83,17 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
+	"net/url"
 	"os"
-	"path/filepath"
+	"path" // Used for internal FS paths
 	"reflect"
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/diskfs/go-diskfs"
 )
 
 type Document = document.Document
@@ -126,6 +130,12 @@ type ProgamFlags struct {
 	Verbose     bool // display extra infomational messages
 	GenerateMD5 bool // generate MD5 checksums
 	ReadEXIF    bool // Read EXIF data from PDF files
+}
+
+type IsoPathAndVolume struct {
+	IsoPath    string // Path to the .iso file itself
+	MountPoint string // Where you want it mounted
+	VolumeName string // The name used for YAML collection labeling
 }
 
 // Implement an enum for ArchiveCategory
@@ -205,7 +215,11 @@ func main() {
 	for _, item := range indirectFileEntry {
 		switch t := item.(type) {
 		case PathAndVolume:
-			extraDocumentsMap := ProcessArchive(item.(PathAndVolume), &fileExceptions, md5Store, programFlags)
+			// Create an fs.FS from a local directory
+			fsys := os.DirFS(t.Path)
+
+			// Call the same ProcessArchive function
+			extraDocumentsMap := ProcessArchive(fsys, t, &fileExceptions, md5Store, programFlags)
 			if *verbose {
 				for i, doc := range extraDocumentsMap {
 					fmt.Println("doc", i, "=>", doc)
@@ -229,7 +243,47 @@ func main() {
 				documentsMap[key] = v
 			}
 			if programFlags.Statistics {
-				fmt.Printf("Found %4d documents in volume %s\n", len(extraDocumentsMap), item.(PathAndVolume).VolumeName)
+				fmt.Printf("Found %4d documents in volume %s\n", len(extraDocumentsMap), t.VolumeName)
+			}
+		case IsoPathAndVolume:
+			// Open the ISO using go-diskfs
+			disk, err := diskfs.Open(t.IsoPath)
+			if err != nil {
+				log.Fatalf("failed to open ISO: %s", err)
+			}
+
+			// Get the ISO9660 filesystem
+			fsys, err := disk.GetFilesystem(0)
+			if err != nil {
+				log.Fatalf("failed to read ISO filesystem: %s", err)
+			}
+			// Map the virtual "/" of the ISO as the path
+			extraDocumentsMap := ProcessArchive(fsys, PathAndVolume{Path: "/", VolumeName: t.VolumeName}, &fileExceptions, md5Store, programFlags)
+
+			if *verbose {
+				for i, doc := range extraDocumentsMap {
+					fmt.Println("doc", i, "=>", doc)
+				}
+				fmt.Println("found ", len(extraDocumentsMap), "new documents")
+			}
+
+			for k, v := range extraDocumentsMap {
+				key := k
+				val, key_exists := documentsMap[k]
+				if key_exists {
+					if (v.Md5 != "") && (v.Md5 == val.Md5) {
+						if *verbose {
+							fmt.Printf("WARNING(1a): Document [%s] already exists, identical to original %v (was %v)\n", k, v, val)
+						}
+					} else {
+						fmt.Printf("WARNING(1): Document [%s] in %s already exists (was %s)\n", k, v.Filepath, val.Filepath)
+						key = k + "DUPLICATE-of-" + val.Filepath
+					}
+				}
+				documentsMap[key] = v
+			}
+			if programFlags.Statistics {
+				fmt.Printf("Found %4d documents in volume %s\n", len(extraDocumentsMap), t.VolumeName)
 			}
 		case SubstituteFile:
 			fileExceptions.FileSubstitutes = append(fileExceptions.FileSubstitutes, item.(SubstituteFile))
@@ -259,39 +313,38 @@ func main() {
 // ProcessArchive examines a single archive volume, determines the category it belongs to
 // and calls the appropriate processing function.
 // It returns a map of Document objects that have been found.
-func ProcessArchive(archive PathAndVolume, fileExceptions *FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
-	category := DetermineCategory((archive.Path))
+func ProcessArchive(fsys fs.FS, archive PathAndVolume, fileExceptions *FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
+	category := DetermineCategory(fsys, archive.VolumeName)
 
 	switch category {
 	case AC_Undefined:
-		fmt.Printf("Cannot process undefined category for %s\n", archive.Path)
+		fmt.Printf("Cannot process undefined category for volume %s\n", archive.VolumeName)
 	case AC_CSV:
-		fmt.Printf("Cannot process CSV category for %s\n", archive.Path)
+		fmt.Printf("Cannot process CSV category for volume %s\n", archive.VolumeName)
 	case AC_Regular:
-		return ParseIndexHtml(archive.Path+"index.htm", archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
+		return ParseIndexHtml(fsys, "index.htm", archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
 	case AC_HTML:
-		return ProcessCategoryHTML(archive, fileExceptions, md5Store, programFlags)
+		return ProcessCategoryHTML(fsys, archive, fileExceptions, md5Store, programFlags)
 	case AC_Metadata:
-		return ProcessCategoryMetadata(archive, fileExceptions, md5Store, programFlags)
+		return ProcessCategoryMetadata(fsys, archive, fileExceptions, md5Store, programFlags)
 	case AC_Custom:
-		return ProcessCategoryCustom(archive, fileExceptions, md5Store, programFlags)
+		return ProcessCategoryCustom(fsys, archive, fileExceptions, md5Store, programFlags)
 	}
 	return nil
 }
 
-func ProcessCategoryHTML(archive PathAndVolume, fileExceptions *FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
+func ProcessCategoryHTML(fsys fs.FS, archive PathAndVolume, fileExceptions *FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 	// 1. Find all links in INDEX.HTM ... each one must point to HTML/XXXX.HTM; build a list of these targets
 	// 2. Verify that every file in HTML/ (regardless of filetype) appears in the list of targets
 	// process each .HTM file
 
-	// Read INDEX.HTM
-	indexPath := archive.Path + "INDEX.HTM"
-	bytes, err := os.ReadFile(indexPath)
+	// Read INDEX.HTM from virtual FS
+	bytes, err := fs.ReadFile(fsys, "INDEX.HTM")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Build  alist of links found in INDEX.HTM
+	// Build a list of links found in INDEX.HTM
 	var links []string
 	re := regexp.MustCompile(`(?m)<TD>\s*<A HREF=\"(.*?)\">\s+(.*?)<\/A>\s+<\/TD>`)
 	matches := re.FindAllStringSubmatch(string(bytes), -1)
@@ -299,51 +352,23 @@ func ProcessCategoryHTML(archive PathAndVolume, fileExceptions *FileHandlingExce
 		log.Fatal("No matches found")
 	} else {
 		for _, v := range matches {
-			links = append(links, strings.ToUpper(v[1]))
+			links = append(links, v[1])
 		}
 	}
 
 	if programFlags.Verbose {
-		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
+		fmt.Printf("Found %d links in INDEX.HTM (Volume %s)\n", len(links), archive.VolumeName)
 	}
 
-	subdir := archive.Path + "HTML/"
-
-	var containsDir bool
-
-	// Walk through the directory and its contents
-	err = filepath.Walk(subdir, func(path string, info os.FileInfo, err error) error {
+	// Walk through the directory using virtual FS
+	err = fs.WalkDir(fsys, "HTML", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			// Handle any error that occurs during file walking
 			fmt.Println("Error:", err)
 			return err
 		}
-		// Skip the top-level directory itself
-		if path == subdir {
-			return nil
+		if d.IsDir() && path != "HTML" {
+			fmt.Printf("WARNING Found subdirectory %s in HTML/\n", path)
 		}
-
-		// Check if the current path is a directory
-		if info.IsDir() {
-			// Mark that we have encountered a directory
-			containsDir = true
-			fmt.Printf("WARNING Found subdirectory %s in %s\n", path, subdir)
-			return nil
-		}
-
-		// All files in HTML/ should have completely uppercase names
-		// if strings.ToUpper(path) != path {
-		//	fmt.Printf("WARNING Found not-all-uppercase file %s in %s\n", path, subdir)
-		//}
-
-		// TODO
-		// All files in HTML/ should appear in links
-		// relativePath, err := filepath.Rel(subdir, path)
-		//relativePath := path
-		//if !links.Contains(relativePath) {
-		//	fmt.Printf("WARNING Found not-all-uppercase file %s in %\n", path, subdir)
-		//}
-
 		return nil
 	})
 
@@ -354,20 +379,18 @@ func ProcessCategoryHTML(archive PathAndVolume, fileExceptions *FileHandlingExce
 		return documentsMap
 	}
 
-	// Report whether any directories were found
-	if containsDir {
-		fmt.Println("HTML/ contains directories.")
-	}
-
 	// For each link ... process it
-	for _, idx := range links {
-		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
-		if programFlags.Verbose {
-			for i, doc := range extraDocumentsMap {
-				fmt.Println("doc", i, "=>", doc)
-			}
-			fmt.Println("found ", len(extraDocumentsMap), "new documents")
+	for _, link := range links {
+		// Resolve the link case-insensitively (e.g., html/alpha.htm -> HTML/ALPHA.HTM)
+		resolvedLink, err := resolvePathCaseInsensitive(fsys, link)
+		if err != nil {
+			// If we can't find the sub-index file, log it and move to the next one
+			log.Printf("Warning: Sub-index link %s not found in Volume %s", link, archive.VolumeName)
+			continue
 		}
+
+		// Now ParseIndexHtml will receive a filename that fs.ReadFile actually understands
+		extraDocumentsMap := ParseIndexHtml(fsys, resolvedLink, archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
 		for k, v := range extraDocumentsMap {
 			val, key_exists := documentsMap[k]
 			if key_exists {
@@ -385,14 +408,13 @@ func ProcessCategoryHTML(archive PathAndVolume, fileExceptions *FileHandlingExce
 	return documentsMap
 }
 
-func ProcessCategoryMetadata(archive PathAndVolume, fileExceptions *FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
+func ProcessCategoryMetadata(fsys fs.FS, archive PathAndVolume, fileExceptions *FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
 	// 1. Find all links in index.htm ... each one must point to HTML/XXXX.HTM; build a list of these targets
 	// 2. Verify that every file in metadata/ (regardless of filetype) appears in the list of targets
 	// process each .HTM file
 
-	// Read index.htm
-	indexPath := archive.Path + "index.htm"
-	bytes, err := os.ReadFile(indexPath)
+	// Read index.htm from virtual FS
+	bytes, err := fs.ReadFile(fsys, "index.htm")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -402,7 +424,7 @@ func ProcessCategoryMetadata(archive PathAndVolume, fileExceptions *FileHandling
 	re := regexp.MustCompile(`(?ms)<TD>\s*<A HREF=\"(.*?)\">\s+(.*?)<\/A>`)
 	matches := re.FindAllStringSubmatch(string(bytes), -1)
 	if len(matches) == 0 {
-		log.Fatalf("No matches found in %s", indexPath)
+		log.Fatalf("No matches found in index.htm for Volume %s", archive.VolumeName)
 	} else {
 		for _, v := range matches {
 			links = append(links, v[1])
@@ -410,46 +432,18 @@ func ProcessCategoryMetadata(archive PathAndVolume, fileExceptions *FileHandling
 	}
 
 	if programFlags.Verbose {
-		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
+		fmt.Printf("Found %d links in index.htm (Volume %s)\n", len(links), archive.VolumeName)
 	}
 
-	subdir := archive.Path + "metadata/"
-
-	var containsDir bool
-
-	// Walk through the directory and its contents
-	err = filepath.Walk(subdir, func(path string, info os.FileInfo, err error) error {
+	// Walk through metadata using virtual FS
+	err = fs.WalkDir(fsys, "metadata", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			// Handle any error that occurs during file walking
 			fmt.Println("Error:", err)
 			return err
 		}
-		// Skip the top-level directory itself
-		if path == subdir {
-			return nil
+		if d.IsDir() && path != "metadata" {
+			fmt.Printf("WARNING Found subdirectory %s in metadata/\n", path)
 		}
-
-		// Check if the current path is a directory
-		if info.IsDir() {
-			// Mark that we have encountered a directory
-			containsDir = true
-			fmt.Printf("WARNING Found subdirectory %s in %s\n", path, subdir)
-			return nil
-		}
-
-		// All files in HTML/ should have completely uppercase names
-		// if strings.ToUpper(path) != path {
-		//	fmt.Printf("WARNING Found not-all-uppercase file %s in %s\n", path, subdir)
-		//}
-
-		// TODO
-		// All files in HTML/ should appear in links
-		// relativePath, err := filepath.Rel(subdir, path)
-		//relativePath := path
-		//if !links.Contains(relativePath) {
-		//	fmt.Printf("WARNING Found not-all-uppercase file %s in %\n", path, subdir)
-		//}
-
 		return nil
 	})
 
@@ -460,24 +454,12 @@ func ProcessCategoryMetadata(archive PathAndVolume, fileExceptions *FileHandling
 		return documentsMap
 	}
 
-	// Report whether any directories were found
-	if containsDir {
-		fmt.Println("metadata/ contains directories.")
-	}
-
 	// For each link ... process it
 	for _, idx := range links {
-		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
-		if programFlags.Verbose {
-			for i, doc := range extraDocumentsMap {
-				fmt.Println("doc", i, "=>", doc)
-			}
-			fmt.Println("found ", len(extraDocumentsMap), "new documents")
-		}
+		extraDocumentsMap := ParseIndexHtml(fsys, idx, archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
 		for k, v := range extraDocumentsMap {
 			val, key_exists := documentsMap[k]
 			if key_exists {
-				var _ = val
 				fmt.Printf("WARNING(3): Document [%s] already exists but being overwritten (was %v)\n", k, val)
 			}
 			documentsMap[k] = v
@@ -490,12 +472,9 @@ func ProcessCategoryMetadata(archive PathAndVolume, fileExceptions *FileHandling
 // This function processes the one local archive that has an index.htm that both contains links to actual documents but also
 // to further .htm files which also contain links to actual documents. Any .htm files in these further .htm files are not
 // processed as contains of links but as actual documents.
-
-func ProcessCategoryCustom(archive PathAndVolume, fileExceptions *FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
-
-	// Read index.htm
-	indexPath := archive.Path + "index.htm"
-	bytes, err := os.ReadFile(indexPath)
+func ProcessCategoryCustom(fsys fs.FS, archive PathAndVolume, fileExceptions *FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
+	// Read index.htm from virtual FS
+	bytes, err := fs.ReadFile(fsys, "index.htm")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -507,28 +486,24 @@ func ProcessCategoryCustom(archive PathAndVolume, fileExceptions *FileHandlingEx
 	re := regexp.MustCompile(`(?ms)<TD>\s*<A HREF=\"(.*?)\">\s+(.*?)<\/A>\s*?<TD>\s*(.*?)\s*</TR>`)
 	matches := re.FindAllStringSubmatch(string(bytes), -1)
 	if len(matches) == 0 {
-		log.Fatalf("No matches found in %s", indexPath)
+		log.Fatalf("No matches found in custom index.htm for Volume %s", archive.VolumeName)
 	} else {
 		for _, v := range matches {
 			target := v[1]
 			partNum := v[2]
 			title := v[3]
 			if strings.HasSuffix(target, ".htm") {
-				links = append(links, v[1])
+				links = append(links, target)
 			} else {
-				fullFilepath := archive.Path + target
-				absoluteFilepath, _ := filepath.Abs(fullFilepath)
-				modifiedVolumePath := absoluteFilepath[len(archive.Path):]
-				documentPath := "file:///" + "DEC_0040" + "/" + modifiedVolumePath
-				// fmt.Println("full=[", fullFilepath, "] abs=[", absoluteFilepath, "] mod=[", modifiedVolumePath, "] a.P=[", archive.Path, "]")
 				md5Checksum := ""
 				if programFlags.GenerateMD5 {
-					md5Checksum, err = CalculateMd5Sum(archive.VolumeName+"//"+modifiedVolumePath, fullFilepath, md5Store, programFlags.Verbose)
+					md5Checksum, err = CalculateMd5Sum(fsys, archive.VolumeName+"//"+target, target, md5Store, programFlags.Verbose)
 					if err != nil {
 						log.Fatal(err)
 					}
 				}
-				newDoc := BuildNewLocalDocument(title, partNum, archive.Path+target, documentPath, md5Checksum, programFlags.ReadEXIF)
+				documentPath := "file:///" + archive.VolumeName + "/" + target
+				newDoc := BuildNewLocalDocument(fsys, title, partNum, target, documentPath, md5Checksum, programFlags.ReadEXIF)
 				newDoc.Collection = "local:" + archive.VolumeName
 				key := md5Checksum
 				if key == "" {
@@ -542,30 +517,11 @@ func ProcessCategoryCustom(archive PathAndVolume, fileExceptions *FileHandlingEx
 		}
 	}
 
-	if programFlags.Verbose {
-		fmt.Printf("Found %d links in %s\n", len(links), indexPath)
-	}
-
-	if err != nil {
-		fmt.Println("Error walking the path:", err)
-		return documentsMap
-	}
-
-	// Process each .htm link
 	for _, idx := range links {
-		// Link in index.htm ends in .htm, so process it as a container of links to documents
-		extraDocumentsMap := ParseIndexHtml(archive.Path+idx, archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
-		if programFlags.Verbose {
-			for i, doc := range extraDocumentsMap {
-				fmt.Println("doc", i, "=>", doc)
-			}
-			fmt.Println("found ", len(extraDocumentsMap), "new documents")
-		}
+		extraDocumentsMap := ParseIndexHtml(fsys, idx, archive.VolumeName, archive.Path, fileExceptions, md5Store, programFlags)
 		for k, v := range extraDocumentsMap {
-			val, key_exists := documentsMap[k]
-			if key_exists {
-				var _ = val
-				fmt.Printf("WARNING(3): Document [%s] already exists but being overwritten (was %v)\n", k, val)
+			if _, exists := documentsMap[k]; exists {
+				fmt.Printf("WARNING(3): Document [%s] already exists but being overwritten\n", k)
 			}
 			documentsMap[k] = v
 		}
@@ -577,59 +533,61 @@ func ProcessCategoryCustom(archive PathAndVolume, fileExceptions *FileHandlingEx
 // Given the path to the root of a document archive, this function works out the
 // category that the archive falls into and returns the result.
 // The category will be used to determine how to process the archive to extract document information.
-func DetermineCategory(archiveRoot string) ArchiveCategory {
-	// Make sure that archiveRoot has a trailing /
-	if archiveRoot[len(archiveRoot)-1:] != "/" {
-		archiveRoot += "/"
-	}
-
+func DetermineCategory(fsys fs.FS, volumeName string) ArchiveCategory {
+	// Use fs.Stat for virtual filesystem compatibility
 	found_index_dot_htm := true
-	if _, err := os.Stat(archiveRoot + "index.htm"); os.IsNotExist(err) {
+	if _, err := fs.Stat(fsys, "index.htm"); err != nil {
 		found_index_dot_htm = false
 	}
 
 	found_INDEX_dot_HTM := true
-	if _, err := os.Stat(archiveRoot + "INDEX.HTM"); os.IsNotExist(err) {
+	if _, err := fs.Stat(fsys, "INDEX.HTM"); err != nil {
 		found_INDEX_dot_HTM = false
 	}
 
 	found_custom_indicator := true
-	if _, err := os.Stat(archiveRoot + "DEC_0040.CRC"); os.IsNotExist(err) {
+	if _, err := fs.Stat(fsys, "DEC_0040.CRC"); err != nil {
 		found_custom_indicator = false
 	}
 
-	found_dir_HTML := SubdirectoryExists(archiveRoot + "HTML")
-	found_dir_metadata := SubdirectoryExists(archiveRoot + "metadata")
+	found_dir_HTML := false
+	if fi, err := fs.Stat(fsys, "HTML"); err == nil && fi.IsDir() {
+		found_dir_HTML = true
+	}
+
+	found_dir_metadata := false
+	if fi, err := fs.Stat(fsys, "metadata"); err == nil && fi.IsDir() {
+		found_dir_metadata = true
+	}
 
 	var category ArchiveCategory = AC_Undefined
-
 	valid := true
 
 	if found_INDEX_dot_HTM {
 		if !found_dir_HTML {
-			fmt.Printf("found INDEX.HTM but no /HTML in %s\n", archiveRoot)
+			fmt.Printf("found INDEX.HTM but no /HTML in Volume %s\n", volumeName)
 			valid = false
 		}
 		if found_index_dot_htm || found_dir_metadata || found_custom_indicator {
-			fmt.Printf("found INDEX.HTM with one or more of index.htm, metdata/ or DEC_0040.CRC in %s\n", archiveRoot)
+			fmt.Printf("found INDEX.HTM with conflicting files in Volume %s\n", volumeName)
 			valid = false
 		}
 		if valid {
 			category = AC_HTML
 		}
 	} else if found_dir_HTML {
-		fmt.Printf("found /HTML but no INDEX.HTM in %s\n", archiveRoot)
+		fmt.Printf("found /HTML but no INDEX.HTM in Volume %s\n", volumeName)
 		valid = false
 	}
 
 	if !found_index_dot_htm && category != AC_HTML {
-		fmt.Printf("No index.htm found in %s\n", archiveRoot)
+		fmt.Printf("No index.htm found in Volume %s\n", volumeName)
 		valid = false
 	}
 
 	if found_dir_metadata {
 		if found_custom_indicator {
-			fmt.Printf("Found both metadata/ and DEC_0040.CRC in %s\n", archiveRoot)
+			fmt.Printf("Found both metadata/ and DEC_0040.CRC in Volume %s\n", volumeName)
 			valid = false
 		}
 		if valid {
@@ -647,27 +605,7 @@ func DetermineCategory(archiveRoot string) ArchiveCategory {
 		category = AC_Regular
 	}
 
-	// fmt.Printf("index.htm: %-7t  INDEX.HTM: %-7t /HTML: %-7t /metadata: %-7t custom: %-7t cat: %-12s in %s\n", found_index_dot_htm, found_INDEX_dot_HTM, found_dir_HTML, found_dir_metadata, found_custom_indicator, category, archiveRoot)
-
 	return category
-}
-
-// Returns true if the specified path is a subdirectory
-func SubdirectoryExists(path string) bool {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// Does not exist at all, either as a file or as a directory
-		return false
-	} else {
-		// Check that it is actually a directory
-		if fi, err := os.Stat(path); err == nil && fi.IsDir() {
-			// Confirmed to be a path
-			return true
-		} else {
-			// Exists but is a file not a path
-			return false
-		}
-	}
-
 }
 
 // Each line of the indirect file consist of:
@@ -690,6 +628,7 @@ func ParseIndirectFile(indirectFile string) ([]IndirectFileEntry, error) {
 		regexp.MustCompile(`^\s*archive\s*:\s*(.*)$`):            IndirectFileProcessPathAndVolume,
 		regexp.MustCompile(`^\s*incorrect-filepath\s*:\s*(.*)$`): IndirectFileProcessSubstituteFilepath,
 		regexp.MustCompile(`^\s*truly-missing-file\s*:\s*(.*)$`): IndirectFileProcessMissingFile,
+		regexp.MustCompile(`^\s*iso\s*:\s*(.*)$`):                IndirectFileProcessIsoPath,
 	}
 
 	lineNumber := 0
@@ -721,6 +660,8 @@ func ParseIndirectFile(indirectFile string) ([]IndirectFileEntry, error) {
 					switch v := item.(type) {
 					case PathAndVolume:
 						result = append(result, item.(PathAndVolume))
+					case IsoPathAndVolume:
+						result = append(result, v)
 					case SubstituteFile:
 						result = append(result, item.(SubstituteFile))
 					case MissingFile:
@@ -745,7 +686,6 @@ func ParseIndirectFile(indirectFile string) ([]IndirectFileEntry, error) {
 
 func IndirectFileProcessPathAndVolume(line string, lineNumber int) (interface{}, error) {
 	var result PathAndVolume
-
 	re := regexp.MustCompile(`[^\s"]+|"([^"]*)"`)
 
 	// Break string into sections delimited by white space.
@@ -761,14 +701,9 @@ func IndirectFileProcessPathAndVolume(line string, lineNumber int) (interface{},
 	switch len(quotedString) {
 	case 2:
 		return PathAndVolume{Path: q0, VolumeName: quotedString[1]}, nil
-	case 0:
-	case 1:
-		return result, fmt.Errorf("indirect file line %d, too few elements: %d", lineNumber, len(quotedString))
 	default:
-		return result, fmt.Errorf("indirect file line %d, too many elements: %d", lineNumber, len(quotedString))
+		return result, fmt.Errorf("indirect file line %d, too many/few elements: %d", lineNumber, len(quotedString))
 	}
-
-	return result, fmt.Errorf("indirect file line %d, too many elements: %d", lineNumber, len(quotedString))
 }
 
 // This function is called to indicate that a specific filepath refers to a file that is expected not to exist.
@@ -781,7 +716,6 @@ func IndirectFileProcessMissingFile(text string, lineNumber int) (interface{}, e
 
 func IndirectFileProcessSubstituteFilepath(text string, lineNumber int) (interface{}, error) {
 	var result SubstituteFile
-
 	re := regexp.MustCompile(`^\s*(.*?)\s+substitute-with\s+(.*)\s*$`)
 	match := re.FindStringSubmatch(text)
 	if match == nil {
@@ -791,28 +725,47 @@ func IndirectFileProcessSubstituteFilepath(text string, lineNumber int) (interfa
 		fmt.Printf("MISMATCH%d: IndirectFileProcessSubstituteFilepath(%s, %d)\n", len(match), text, lineNumber)
 		return result, nil
 	}
+
 	// Here, exactly the right number of matches
 	result.MistypedFilepath = match[1]
 	result.ActualFilepath = match[2]
-
 	return result, nil
+}
+
+func IndirectFileProcessIsoPath(line string, lineNumber int) (interface{}, error) {
+	var result IsoPathAndVolume
+	re := regexp.MustCompile(`[^\s"]+|"([^"]*)"`)
+	parts := re.FindAllString(line, -1)
+
+	if parts == nil || len(parts) != 3 {
+		return result, fmt.Errorf("indirect file line %d, invalid ISO line", lineNumber)
+	}
+
+	p0 := StripOptionalLeadingAndTrailingDoubleQuotes(parts[0])
+	p1 := StripOptionalLeadingAndTrailingDoubleQuotes(parts[1])
+	if !strings.HasSuffix(p1, "/") {
+		p1 += "/"
+	}
+	p2 := StripOptionalLeadingAndTrailingDoubleQuotes(parts[2])
+
+	return IsoPathAndVolume{
+		IsoPath:    p0,
+		MountPoint: p1,
+		VolumeName: p2,
+	}, nil
 }
 
 // The index HTML files written to the DVDs are almost all in one of two (similar) formats.
 // This function parses any such HTML file to produce a list of files that the index HTML links to
 // and the associated part number and title recorded in the index HTML.
 // If required then an MD5 checksum is generated and PDF metadata is extracted and recorded.
-func ParseIndexHtml(filename string, volume string, root string, fileExceptions *FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
-
-	if programFlags.Verbose {
-		fmt.Println("Processing index for ", filename)
-	}
-	path := filepath.Dir(filename)
-	bytes, err := os.ReadFile(filename)
+func ParseIndexHtml(fsys fs.FS, filename string, volume string, root string, fileExceptions *FileHandlingExceptions, md5Store *persistentstore.Store[string, string], programFlags ProgamFlags) map[string]Document {
+	bytes, err := fs.ReadFile(fsys, filename)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error reading %s: %v", filename, err)
 	}
 
+	currentDir := path.Dir(filename)
 	documentsMap := make(map[string]Document)
 
 	// Each entry we care about looks like this:
@@ -827,140 +780,74 @@ func ParseIndexHtml(filename string, volume string, root string, fileExceptions 
 	// <TD> Functional Specification for PVAX0 System Firmware Rev 0.3</TR>
 
 	re := regexp.MustCompile(`(?ms)<TR(?:>\s*<TD)?\s+VALIGN=TOP>.*?(?:<TD>)?\s*<A HREF=\"(.*?)\">\s+(.*?)(?:</A>)?\s+<TD>\s+(.*?)</TR>`)
-	title_matches := re.FindAllStringSubmatch(string(bytes), -1)
-	if len(title_matches) == 0 {
-		log.Fatal("No matches found")
-	} else {
-		if programFlags.Verbose {
-			fmt.Println("Found", len(title_matches), "documents in HTML")
-		}
-		for _, match := range title_matches {
-			if len(match) != 4 {
-				log.Fatal("Bad match")
-			} else {
-				pathInVolumerelativetoHTML := match[1]
-				partNumber := strings.TrimSpace(match[2])
-				title := TidyDocumentTitle(match[3])
-				fullFilepath := path + "/" + pathInVolumerelativetoHTML
-				absoluteFilepath, err := filepath.Abs(fullFilepath)
-				modifiedVolumePathInHTML := absoluteFilepath[len(root):]
-				if err != nil {
-					log.Fatal(err)
-				}
+	matches := re.FindAllStringSubmatch(string(bytes), -1)
 
-				cifp := BuildCaseInsensitivePathGlob(absoluteFilepath)
-				candidateFile, err := filepath.Glob(cifp)
-				if err != nil {
-					log.Fatal(err)
-				}
-				if len(candidateFile) == 0 {
+	for _, match := range matches {
+		linkPath := match[1]
+		partNumber := strings.TrimSpace(match[2])
+		title := TidyDocumentTitle(match[3])
 
-					// See if the missing file has a substitute filepath, and if so try using that
-					fileFound := false
-					for idx, v := range fileExceptions.FileSubstitutes {
-						if v.MistypedFilepath == modifiedVolumePathInHTML {
-							if programFlags.Verbose {
-								fmt.Printf("Found in mistyping [%s] in fileExceptions and swapping for %s\n", modifiedVolumePathInHTML, v.ActualFilepath)
-							}
-							fullFilepath = path + "/" + v.ActualFilepath
-							absoluteFilepath, _ = filepath.Abs(fullFilepath)
-							cifp := BuildCaseInsensitivePathGlob(absoluteFilepath)
-							candidateFile, err = filepath.Glob(cifp)
-							if err != nil {
-								log.Fatal(err)
-							}
-							if len(candidateFile) == 0 {
-								fmt.Printf("WARNING: Found mistyping [%s] in fileExceptions but swapping for %s (%s), file still not found\n", modifiedVolumePathInHTML, v.ActualFilepath, fullFilepath)
-								continue
-							} else {
-								if programFlags.Verbose {
-									fmt.Printf("File found after fixing bad path [%s]  to be %s (%s) in %s\n", modifiedVolumePathInHTML, v.ActualFilepath, fullFilepath, filename)
-								}
-								fileFound = true
-								// Swap the last element into the slot occupied by the now used and to-be-discarded element, then shorten by one
-								// This would be quicker (which won't matter in this use case) and is simpler for me to understand 9which does!)
-								fileExcLen := len(fileExceptions.FileSubstitutes)
-								fileExceptions.FileSubstitutes[idx] = fileExceptions.FileSubstitutes[fileExcLen-1]
-								fileExceptions.FileSubstitutes = fileExceptions.FileSubstitutes[:fileExcLen-1]
-								break
-							}
-						}
-					}
-
-					// If missing file has not been substituted, see if it is in the set of "missing files"
-					fileTrulyMissing := true
-					if !fileFound {
-
-						for idx, v := range fileExceptions.MissingFiles {
-							if v.Filepath == modifiedVolumePathInHTML {
-								fileTrulyMissing = false
-								fileExcLen := len(fileExceptions.MissingFiles)
-								fileExceptions.MissingFiles[idx] = fileExceptions.MissingFiles[fileExcLen-1]
-								fileExceptions.MissingFiles = fileExceptions.MissingFiles[:fileExcLen-1]
-							}
-						}
-
-						if fileTrulyMissing {
-							fmt.Printf("Missing file not mentioned in indirect-file\n")
-						}
-					}
-
-					// If the missing file is still missing (i.e. not found even if a substitue is available) then skip to avoid generating a document entry
-					if !fileFound {
-						if fileTrulyMissing {
-							log.Printf("MISSING file: %s [%s] linked from %s\n", fullFilepath, modifiedVolumePathInHTML, filename)
-						}
-						continue
-					}
-
-				} else if len(candidateFile) != 1 {
-					log.Fatal("Too many files found:", candidateFile)
-				}
-
-				// Find the actal pathname withing the volume rather than whatever might have been specified in an HTML file 9which may be the wrong case)
-				modifiedVolumePath := candidateFile[0][len(root):]
-
-				// If requested, find the file's MD5 checksum
-				md5Checksum := ""
-				if programFlags.GenerateMD5 {
-					md5Checksum, err = CalculateMd5Sum(volume+"//"+modifiedVolumePath, candidateFile[0], md5Store, programFlags.Verbose)
-					if err != nil {
-						log.Fatal(err)
-					}
-				}
-
-				documentRelativePath := "file:///" + volume + "/" + modifiedVolumePath
-				newDocument := BuildNewLocalDocument(title, partNumber, candidateFile[0], documentRelativePath, md5Checksum, programFlags.ReadEXIF)
-				newDocument.Collection = "local:" + volume
-
-				key := md5Checksum
-				if key == "" {
-					key = partNumber + "~" + newDocument.Format
-					if key == "" {
-						key = title + "~" + newDocument.Format
-					}
-				}
-
-				// If a duplicate is found, keep the previous entry
-				if _, ok := documentsMap[key]; ok {
-					// If the duplicated entries share the same filepath, then the same file is linked to
-					// more than once. This is not a true "conflicting" duplicate, so suppress the report.
-					if newDocument.Filepath != documentsMap[key].Filepath {
-						previousFilePath := documentsMap[key].Filepath
-						// TODO here should warn if warning set and should count duplicates
-						// TODO fmt.Println("WARNING(1) Duplicate entry for ", key, " path: ", newDocument.Filepath, " previous: ", previousFilePath)
-						newKey := key + "DUPLICATE" + strings.Replace(previousFilePath, "/", "_", 20)
-						documentsMap[newKey] = newDocument
-					}
-				} else {
-					documentsMap[key] = newDocument
-				}
+		// 1. Check for truly-missing-file directive
+		isKnownMissing := false
+		for _, m := range fileExceptions.MissingFiles {
+			if strings.EqualFold(m.Filepath, linkPath) {
+				isKnownMissing = true
+				break
 			}
 		}
-	}
+		if isKnownMissing {
+			continue
+		}
 
-	if programFlags.Verbose {
-		fmt.Printf("Returning %d documents after processing HTML in %s\n", len(documentsMap), filename)
+		// 2. Resolve Path (Context-Aware for ../ and Fallback for root-relative)
+		targetPath := path.Join(currentDir, linkPath)
+		resolvedPath, err := resolvePathCaseInsensitive(fsys, targetPath)
+		if err != nil {
+			resolvedPath, err = resolvePathCaseInsensitive(fsys, linkPath)
+		}
+
+		// 3. Check for incorrect-filepath directive
+		if err != nil {
+			foundEx := false
+			for _, ex := range fileExceptions.FileSubstitutes {
+				if strings.EqualFold(ex.MistypedFilepath, linkPath) {
+					resolvedPath, err = resolvePathCaseInsensitive(fsys, ex.ActualFilepath)
+					if err == nil {
+						foundEx = true
+						break
+					}
+				}
+			}
+			if !foundEx {
+				log.Printf("MISSING file: %s in Volume %s", linkPath, volume)
+				continue
+			}
+		}
+
+		// 4. Build the Document object
+		md5Sum, _ := CalculateMd5Sum(fsys, volume+"//"+resolvedPath, resolvedPath, md5Store, programFlags.Verbose)
+		docPath := "file:///" + volume + "/" + resolvedPath
+		newDocument := BuildNewLocalDocument(fsys, title, partNumber, resolvedPath, docPath, md5Sum, programFlags.ReadEXIF)
+		newDocument.Collection = "local:" + volume
+
+		key := md5Sum
+		if key == "" {
+			key = partNumber + "~" + newDocument.Format
+		}
+
+		// If a duplicate is found, keep the previous entry
+		if _, ok := documentsMap[key]; ok {
+			// If filepaths differ, it's a true duplicate (same content, different location)
+			if newDocument.Filepath != documentsMap[key].Filepath {
+				previousFilePath := documentsMap[key].Filepath
+				// Create the specialized key seen in your YAML
+				newKey := key + "DUPLICATE" + strings.Replace(previousFilePath, "/", "_", 20)
+				documentsMap[newKey] = newDocument
+			}
+			// If filepaths are the same, we silently skip (same file linked twice)
+		} else {
+			documentsMap[key] = newDocument
+		}
 	}
 
 	return documentsMap
@@ -976,15 +863,16 @@ func ParseIndexHtml(filename string, volume string, root string, fileExceptions 
 // documentPath:  psudo
 // md5Checksum:   MD5 checksum (may be blank)
 // readExif:      true if PDF metadata should be extracted, false otherwise
-func BuildNewLocalDocument(title string, partNum string, filePath string, documentPath string, md5Checksum string, readExif bool) Document {
-	filestats, err := os.Stat(filePath)
+func BuildNewLocalDocument(fsys fs.FS, title string, partNum string, filePath string, documentPath string, md5Checksum string, readExif bool) Document {
+	// Use fs.Stat for internal ISO/Virtual paths
+	filestats, err := fs.Stat(fsys, filePath)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	pdfMetadata := PdfMetadata{}
-	if readExif {
-		pdfMetadata = pdfmetadata.ExtractPdfMetadata(filePath)
+	pdfMetadata := pdfmetadata.PdfMetadata{}
+	if readExif && strings.ToUpper(path.Ext(filePath)) == ".PDF" {
+		pdfMetadata = pdfmetadata.ExtractPdfMetadataFromFS(fsys, filePath)
 	}
 
 	var newDocument Document
@@ -992,7 +880,6 @@ func BuildNewLocalDocument(title string, partNum string, filePath string, docume
 	newDocument.Size = filestats.Size()
 	newDocument.Md5 = md5Checksum
 	newDocument.Title = strings.TrimSuffix(strings.TrimSpace(title), "\n")
-	newDocument.PubDate = "" // Not available anywhere
 	newDocument.PartNum = strings.TrimSpace(partNum)
 	newDocument.PdfCreator = pdfMetadata.Creator
 	newDocument.PdfProducer = pdfMetadata.Producer
@@ -1033,7 +920,7 @@ func BuildCaseInsensitivePathGlob(path string) string {
 var KnownFileTypes = [...]string{"PDF", "TXT", "MEM", "RNO", "PS", "HTM", "HTML", "ZIP", "LN3", "TIF", "JPG", "JPEG"}
 
 func DetermineFileFormat(filename string) string {
-	filetype := strings.TrimPrefix(strings.ToUpper(filepath.Ext(filename)), ".")
+	filetype := strings.TrimPrefix(strings.ToUpper(path.Ext(filename)), ".")
 	if filetype == "HTM" {
 		filetype = "HTML"
 	}
@@ -1059,7 +946,7 @@ func DetermineFileFormat(filename string) string {
 func TidyDocumentTitle(untidyTitle string) string {
 	title := strings.TrimSpace(untidyTitle)
 	title = strings.Replace(title, "\r\n", "", -1)
-	title = strings.Join(strings.Fields(title), " ") // Collapse duplicate whitespace
+	title = strings.Join(strings.Fields(title), " ")
 	re := regexp.MustCompile(`\s*<BR>(?:\s*<BR>\s*)*\s*`)
 	title = re.ReplaceAllString(title, ". ")
 	return title
@@ -1068,26 +955,23 @@ func TidyDocumentTitle(untidyTitle string) string {
 // Return the MD5 sum for the specified file.
 // Start by looking up the filename (path) in the cache and return a pre-computed MD5 sum if found.
 // Otherwise, compute the MD5 sum, add the entry to the cache, mark the cache as dirty and return the computed MD5 sum.
-func CalculateMd5Sum(filenameInCache string, fullFilepath string, md5Store *persistentstore.Store[string, string], verbose bool) (string, error) {
-
+func CalculateMd5Sum(fsys fs.FS, filenameInCache string, relativePath string, md5Store *persistentstore.Store[string, string], verbose bool) (string, error) {
 	// Lookup the filename (path) in the cache; if found report that as the MD5 sum
 	if md5, found := md5Store.Lookup(filenameInCache); found {
-		if verbose {
-			fmt.Printf("MD5 Store: Found %s for %s\n", md5, filenameInCache)
-		}
 		return md5, nil
 	}
 
 	// The filename (path) is not in the cache.
 	// Generate the MD5 sum, add the value to the cache and mark the cache as Dirty
-	fileBytes, err := os.ReadFile(fullFilepath)
+	// Use fs.ReadFile for virtual filesystem compatibility
+	fileBytes, err := fs.ReadFile(fsys, relativePath)
 	if err != nil {
 		return "", err
 	}
 	md5Hash := md5.Sum(fileBytes)
 	md5Checksum := hex.EncodeToString(md5Hash[:])
 	md5Store.Update(filenameInCache, md5Checksum)
-	fmt.Printf("MD5 Store: wrote %s for [%s] (full path %s)\n", md5Checksum, filenameInCache, fullFilepath)
+	fmt.Printf("MD5 Store: wrote %s for [%s] (relative path %s)\n", md5Checksum, filenameInCache, relativePath)
 	return md5Checksum, nil
 }
 
@@ -1100,8 +984,53 @@ func StripOptionalLeadingAndTrailingDoubleQuotes(candidate string) string {
 	result := candidate
 	if (result[0] == '"') && (result[len(result)-1] == '"') {
 		result = result[1 : len(result)-1]
-		// fmt.Printf("removed quotes from: [%s]\n", candidate)
-		// fmt.Printf("result is          :  [%s]\n", result)
 	}
 	return result
+}
+
+// resolvePathCaseInsensitive finds the actual case-correct path for a given name within fsys.
+func resolvePathCaseInsensitive(fsys fs.FS, name string) (string, error) {
+	// 1. Handle URL encoding (e.g. %20 -> space)
+	unescaped, err := url.QueryUnescape(name)
+	if err == nil {
+		name = unescaped
+	}
+
+	// 2. Standardise slashes and remove leading slashes (io/fs paths are relative to root)
+	name = strings.ReplaceAll(name, "\\", "/")
+	name = strings.TrimPrefix(name, "/")
+	name = path.Clean(name)
+
+	if name == "." || name == "" {
+		return ".", nil
+	}
+
+	parts := strings.Split(name, "/")
+	current := "."
+
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+
+		entries, err := fs.ReadDir(fsys, current)
+		if err != nil {
+			return "", err
+		}
+
+		found := false
+		for _, entry := range entries {
+			// Bridge the Windows/Linux gap
+			if strings.EqualFold(entry.Name(), part) {
+				current = path.Join(current, entry.Name())
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return "", fmt.Errorf("component %s not found in %s", part, current)
+		}
+	}
+	return current, nil
 }
