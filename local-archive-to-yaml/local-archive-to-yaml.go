@@ -87,12 +87,12 @@ import (
 	"io"
 	"io/fs"
 	"log"
-	"net/url"
 	"os"
 	"os/exec"
 	"path" // Used for internal FS paths
 	"reflect"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -912,6 +912,7 @@ func ParseIndexHtml(fsys fs.FS, filename string, volume string, root string, fil
 				}
 			}
 			if !foundEx {
+				debug.PrintStack()
 				log.Printf("MISSING file: %s in Volume %s", linkPath, volume)
 				continue
 			}
@@ -1084,13 +1085,19 @@ func StripOptionalLeadingAndTrailingDoubleQuotes(candidate string) string {
 // resolvePathCaseInsensitive finds the actual case-correct path for a given name within fsys.
 // It handles "." and ".." path components correctly.
 func resolvePathCaseInsensitive(fsys fs.FS, name string) (string, error) {
-	// 1. Handle URL encoding (e.g. %20 -> space)
-	unescaped, err := url.QueryUnescape(name)
-	if err == nil {
-		name = unescaped
-	}
+	// The original code did the unescaping because it might have been fed a link
+	// that needed to be unescaped. In fact I've not produced any such links, and this
+	// is actually harmful in the case of some filenames.
 
-	// 2. Standardise slashes and remove leading slashes (io/fs paths are relative to root)
+	// I am leaving the commented out code along with this warning in case future-me wants to bring it back!
+
+	// 1. Handle URL encoding (e.g. %20 -> space)
+	// unescaped, err := url.QueryUnescape(name)
+	// if err == nil {
+	// 	name = unescaped
+	// }
+
+	// Standardise slashes and remove leading slashes (io/fs paths are relative to root)
 	name = strings.ReplaceAll(name, "\\", "/")
 	name = strings.TrimPrefix(name, "/")
 	name = path.Clean(name)
@@ -1102,7 +1109,7 @@ func resolvePathCaseInsensitive(fsys fs.FS, name string) (string, error) {
 	parts := strings.Split(name, "/")
 	current := "."
 
-	for _, part := range parts {
+	for idx, part := range parts {
 		if part == "" || part == "." {
 			continue
 		}
@@ -1132,7 +1139,21 @@ func resolvePathCaseInsensitive(fsys fs.FS, name string) (string, error) {
 		}
 
 		if !found {
-			return "", fmt.Errorf("component %s not found in %s", part, current)
+			// Only mangle if this is the final component
+			if idx == len(parts)-1 {
+				part = TruncatePathForBsdTar(part)
+				for _, entry := range entries {
+					if strings.EqualFold(entry.Name(), part) {
+						current = path.Join(current, entry.Name())
+						found = true
+						break
+					}
+				}
+			}
+
+			if !found {
+				return "", fmt.Errorf("component %s not found in %s", part, current)
+			}
 		}
 	}
 	return current, nil
@@ -1207,25 +1228,6 @@ func NewBsdTarFS(isoPath string) (*BsdTarFS, error) {
 		}
 	}
 
-	// DEBUG START
-	if _, ok := fsys.files["index.htm"]; ok {
-		fmt.Println("DEBUG: index.htm found in fsys.files")
-	} else if _, ok := fsys.files["./index.htm"]; ok {
-		fmt.Println("DEBUG: index.htm found as ./index.htm")
-	} else {
-		fmt.Println("DEBUG: index.htm NOT found in fsys.files")
-		fmt.Println("DEBUG: First 15 keys in fsys.files:")
-		count := 0
-		for k := range fsys.files {
-			fmt.Printf("  DEBUG key: %q\n", k)
-			count++
-			if count >= 15 {
-				break
-			}
-		}
-	}
-	// DEBUG END
-
 	return fsys, scanner.Err()
 }
 
@@ -1284,8 +1286,15 @@ func (fsys *BsdTarFS) Open(name string) (fs.File, error) {
 	}
 	// Try as-is; if not found, try with "./" prefix
 	info, ok := fsys.files[name]
-	if !ok && !strings.HasPrefix(name, "./") {
-		info, ok = fsys.files["./"+name]
+	if !ok {
+		// Try truncated filename
+		truncated := TruncatePathForBsdTar(name)
+		if truncated != name {
+			info, ok = fsys.files[truncated]
+			if ok {
+				name = truncated
+			}
+		}
 	}
 	if !ok {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
@@ -1329,6 +1338,16 @@ func (fsys *BsdTarFS) Stat(name string) (fs.FileInfo, error) {
 	info, ok := fsys.files[name]
 	if !ok && !strings.HasPrefix(name, "./") {
 		info, ok = fsys.files["./"+name]
+	}
+	if !ok {
+		// Try truncated filename
+		truncated := TruncatePathForBsdTar(name)
+		if truncated != name {
+			info, ok = fsys.files[truncated]
+			if !ok && !strings.HasPrefix(truncated, "./") {
+				info, ok = fsys.files["./"+truncated]
+			}
+		}
 	}
 	if !ok {
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
@@ -1407,4 +1426,51 @@ func (d *bsdDirFile) ReadDir(n int) ([]fs.DirEntry, error) {
 		return nil, io.EOF
 	}
 	return result, nil
+}
+
+// TruncatePathForBsdTar truncates the filename component of a file path so that
+// the total length of the filename plus its extension (including the dot) does
+// not exceed 64 characters. The extension is defined as the substring starting
+// with the last dot in the filename. If the path has no dot, the whole filename
+// is truncated to 64 characters.
+//
+// The function splits the path into directory and base name, then splits the
+// base name into a name part (everything before the last dot) and an extension
+// part (the last dot and what follows). It shortens the name part to fit within
+// the limit, then reassembles the path. If the original already fits, it returns
+// the original path unchanged.
+func TruncatePathForBsdTar(originalPath string) string {
+	// Split into directory and base filename
+	dir, base := path.Split(originalPath)
+
+	// Find the last dot to separate extension
+	lastDot := strings.LastIndex(base, ".")
+	if lastDot == -1 {
+		// No extension – truncate whole base to 64 chars
+		if len(base) <= 64 {
+			return originalPath
+		}
+		newBase := base[:64]
+		return path.Join(dir, newBase)
+	}
+
+	namePart := base[:lastDot]
+	extPart := base[lastDot:] // includes the dot
+
+	// Total allowed length for namePart is 64 - len(extPart)
+	maxNameLen := 64 - len(extPart)
+	if maxNameLen < 0 {
+		// Extension alone exceeds 64 – should not happen, but keep original
+		fmt.Printf("WARNING: Huge extension: %s\n", originalPath)
+		return originalPath
+	}
+
+	if len(namePart) <= maxNameLen {
+		return originalPath
+	}
+
+	// Truncate the name part
+	newNamePart := namePart[:maxNameLen]
+	newBase := newNamePart + extPart
+	return path.Join(dir, newBase)
 }
