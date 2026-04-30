@@ -76,6 +76,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/md5"
 	"docs-to-yaml/internal/document"
 	"docs-to-yaml/internal/pdfmetadata"
@@ -83,17 +84,22 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/url"
 	"os"
+	"os/exec"
 	"path" // Used for internal FS paths
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/diskfs/go-diskfs"
+	"github.com/diskfs/go-diskfs/filesystem/iso9660"
 )
 
 type Document = document.Document
@@ -112,7 +118,7 @@ type MissingFile struct {
 	Filepath string
 }
 
-// SubstitueFile represents a filename that was incorrectly typed and the file name that should have been typed
+// SubstituteFile represents a filename that was incorrectly typed and the file name that should have been typed
 type SubstituteFile struct {
 	MistypedFilepath string // This is the incorrect filepath (relative to the archive volume root) as entered in an HTML file
 	ActualFilepath   string // This is the correct filepath (relative to the archive volume root) that should have been in that HTML file
@@ -132,10 +138,33 @@ type ProgamFlags struct {
 	ReadEXIF    bool // Read EXIF data from PDF files
 }
 
-type IsoPathAndVolume struct {
+type IsoPathAndVolumeWithGoDiskFS struct {
 	IsoPath    string // Path to the .iso file itself
 	MountPoint string // Where you want it mounted
 	VolumeName string // The name used for YAML collection labeling
+}
+
+type IsoPathAndVolumeBsdTar struct {
+	IsoPath    string // Path to the .iso file itself
+	VolumeName string // The name used for YAML collection labeling
+}
+
+//type BsdTarFS struct {
+//	isoPath string
+//	files   map[string]bool     // path → isDir
+//	tree    map[string][]string // dir → children
+//}
+
+type bsdFileInfo struct {
+	name    string
+	size    int64
+	isDir   bool
+	mode    fs.FileMode
+	modTime time.Time
+}
+type BsdTarFS struct {
+	isoPath string
+	files   map[string]*bsdFileInfo // path → file info
 }
 
 // Implement an enum for ArchiveCategory
@@ -245,21 +274,60 @@ func main() {
 			if programFlags.Statistics {
 				fmt.Printf("Found %4d documents in volume %s\n", len(extraDocumentsMap), t.VolumeName)
 			}
-		case IsoPathAndVolume:
+		case IsoPathAndVolumeWithGoDiskFS:
 			// Open the ISO using go-diskfs
-			disk, err := diskfs.Open(t.IsoPath)
+			disk, err := diskfs.Open(t.IsoPath, diskfs.WithOpenMode(diskfs.ReadOnly))
 			if err != nil {
 				log.Fatalf("failed to open ISO: %s", err)
 			}
 
 			// Get the ISO9660 filesystem
-			fsys, err := disk.GetFilesystem(0)
+			// Attempt to get the filesystem.
+			// -1 tells go-diskfs to look at the whole disk if no partition table exists.
+			fsys, err := disk.GetFilesystem(-1)
 			if err != nil {
-				log.Fatalf("failed to read ISO filesystem: %s", err)
+				// Manual fallback for bare ISOs
+				fsys = &iso9660.FileSystem{} // This requires more complex initialization
+				// Stick to the -1 vs 0 logic first as it is the standard wrapper
 			}
-			// Map the virtual "/" of the ISO as the path
-			extraDocumentsMap := ProcessArchive(fsys, PathAndVolume{Path: "/", VolumeName: t.VolumeName}, &fileExceptions, md5Store, programFlags)
 
+			// Map the virtual "/" of the ISO as the path
+			extraDocumentsMap := ProcessArchive(fsys, PathAndVolume{Path: ".", VolumeName: t.VolumeName}, &fileExceptions, md5Store, programFlags)
+
+			if *verbose {
+				for i, doc := range extraDocumentsMap {
+					fmt.Println("doc", i, "=>", doc)
+				}
+				fmt.Println("found ", len(extraDocumentsMap), "new documents")
+			}
+
+			for k, v := range extraDocumentsMap {
+				key := k
+				val, key_exists := documentsMap[k]
+				if key_exists {
+					if (v.Md5 != "") && (v.Md5 == val.Md5) {
+						if *verbose {
+							fmt.Printf("WARNING(1a): Document [%s] already exists, identical to original %v (was %v)\n", k, v, val)
+						}
+					} else {
+						fmt.Printf("WARNING(1): Document [%s] in %s already exists (was %s)\n", k, v.Filepath, val.Filepath)
+						key = k + "DUPLICATE-of-" + val.Filepath
+					}
+				}
+				documentsMap[key] = v
+			}
+			if programFlags.Statistics {
+				fmt.Printf("Found %4d documents in volume %s\n", len(extraDocumentsMap), t.VolumeName)
+			}
+		case IsoPathAndVolumeBsdTar:
+			// NEW: bsdtar-based handling
+			fsys, err := NewBsdTarFS(t.IsoPath) // from the corrected BsdTarFS implementation
+			if err != nil {
+				log.Fatalf("Failed to create BsdTarFS for %s: %v", t.IsoPath, err)
+			}
+			// Use a dummy mount point (ignored)
+			archive := PathAndVolume{Path: ".", VolumeName: t.VolumeName}
+			extraDocumentsMap := ProcessArchive(fsys, archive, &fileExceptions, md5Store, programFlags)
 			if *verbose {
 				for i, doc := range extraDocumentsMap {
 					fmt.Println("doc", i, "=>", doc)
@@ -628,7 +696,8 @@ func ParseIndirectFile(indirectFile string) ([]IndirectFileEntry, error) {
 		regexp.MustCompile(`^\s*archive\s*:\s*(.*)$`):            IndirectFileProcessPathAndVolume,
 		regexp.MustCompile(`^\s*incorrect-filepath\s*:\s*(.*)$`): IndirectFileProcessSubstituteFilepath,
 		regexp.MustCompile(`^\s*truly-missing-file\s*:\s*(.*)$`): IndirectFileProcessMissingFile,
-		regexp.MustCompile(`^\s*iso\s*:\s*(.*)$`):                IndirectFileProcessIsoPath,
+		regexp.MustCompile(`^\s*iso-godiskfs\s*:\s*(.*)$`):       IndirectFileProcessIsoPathGoDiskFS,
+		regexp.MustCompile(`^\s*iso-bsdtar\s*:\s*(.*)$`):         IndirectFileProcessIsoPathBsdTar,
 	}
 
 	lineNumber := 0
@@ -660,7 +729,9 @@ func ParseIndirectFile(indirectFile string) ([]IndirectFileEntry, error) {
 					switch v := item.(type) {
 					case PathAndVolume:
 						result = append(result, item.(PathAndVolume))
-					case IsoPathAndVolume:
+					case IsoPathAndVolumeWithGoDiskFS:
+						result = append(result, v)
+					case IsoPathAndVolumeBsdTar:
 						result = append(result, v)
 					case SubstituteFile:
 						result = append(result, item.(SubstituteFile))
@@ -732,8 +803,8 @@ func IndirectFileProcessSubstituteFilepath(text string, lineNumber int) (interfa
 	return result, nil
 }
 
-func IndirectFileProcessIsoPath(line string, lineNumber int) (interface{}, error) {
-	var result IsoPathAndVolume
+func IndirectFileProcessIsoPathGoDiskFS(line string, lineNumber int) (interface{}, error) {
+	var result IsoPathAndVolumeWithGoDiskFS
 	re := regexp.MustCompile(`[^\s"]+|"([^"]*)"`)
 	parts := re.FindAllString(line, -1)
 
@@ -748,9 +819,31 @@ func IndirectFileProcessIsoPath(line string, lineNumber int) (interface{}, error
 	}
 	p2 := StripOptionalLeadingAndTrailingDoubleQuotes(parts[2])
 
-	return IsoPathAndVolume{
+	return IsoPathAndVolumeWithGoDiskFS{
 		IsoPath:    p0,
 		MountPoint: p1,
+		VolumeName: p2,
+	}, nil
+}
+
+func IndirectFileProcessIsoPathBsdTar(line string, lineNumber int) (interface{}, error) {
+	var result IsoPathAndVolumeWithGoDiskFS
+	re := regexp.MustCompile(`[^\s"]+|"([^"]*)"`)
+	parts := re.FindAllString(line, -1)
+
+	if parts == nil || len(parts) != 3 {
+		return result, fmt.Errorf("indirect file line %d, invalid ISO line", lineNumber)
+	}
+
+	p0 := StripOptionalLeadingAndTrailingDoubleQuotes(parts[0])
+	p1 := StripOptionalLeadingAndTrailingDoubleQuotes(parts[1])
+	if !strings.HasSuffix(p1, "/") {
+		p1 += "/"
+	}
+	p2 := StripOptionalLeadingAndTrailingDoubleQuotes(parts[2])
+
+	return IsoPathAndVolumeBsdTar{
+		IsoPath:    p0,
 		VolumeName: p2,
 	}, nil
 }
@@ -989,6 +1082,7 @@ func StripOptionalLeadingAndTrailingDoubleQuotes(candidate string) string {
 }
 
 // resolvePathCaseInsensitive finds the actual case-correct path for a given name within fsys.
+// It handles "." and ".." path components correctly.
 func resolvePathCaseInsensitive(fsys fs.FS, name string) (string, error) {
 	// 1. Handle URL encoding (e.g. %20 -> space)
 	unescaped, err := url.QueryUnescape(name)
@@ -1012,7 +1106,17 @@ func resolvePathCaseInsensitive(fsys fs.FS, name string) (string, error) {
 		if part == "" || part == "." {
 			continue
 		}
+		if part == ".." {
+			// Move up one directory
+			if current == "." {
+				// Cannot go above root; keep as "."
+				continue
+			}
+			current = path.Dir(current)
+			continue
+		}
 
+		// Normal component: find case-insensitive match in current directory
 		entries, err := fs.ReadDir(fsys, current)
 		if err != nil {
 			return "", err
@@ -1020,7 +1124,6 @@ func resolvePathCaseInsensitive(fsys fs.FS, name string) (string, error) {
 
 		found := false
 		for _, entry := range entries {
-			// Bridge the Windows/Linux gap
 			if strings.EqualFold(entry.Name(), part) {
 				current = path.Join(current, entry.Name())
 				found = true
@@ -1033,4 +1136,275 @@ func resolvePathCaseInsensitive(fsys fs.FS, name string) (string, error) {
 		}
 	}
 	return current, nil
+}
+
+func (fi *bsdFileInfo) Name() string       { return path.Base(fi.name) }
+func (fi *bsdFileInfo) Size() int64        { return fi.size }
+func (fi *bsdFileInfo) Mode() fs.FileMode  { return fi.mode }
+func (fi *bsdFileInfo) ModTime() time.Time { return fi.modTime }
+func (fi *bsdFileInfo) IsDir() bool        { return fi.isDir }
+func (fi *bsdFileInfo) Sys() interface{}   { return nil }
+
+// NewBsdTarFS parses "bsdtar -tvf" to build a file index.
+func NewBsdTarFS(isoPath string) (*BsdTarFS, error) {
+	cmd := exec.Command("bsdtar", "-tvf", isoPath)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	fsys := &BsdTarFS{
+		isoPath: isoPath,
+		files:   make(map[string]*bsdFileInfo),
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+		// Need at least 9 fields to have perms, link, owner, group, size, month, day, time, filename
+		if len(fields) < 9 {
+			continue
+		}
+		// Size is at index 4
+		size, err := strconv.ParseInt(fields[4], 10, 64)
+		if err != nil {
+			continue // skip lines where size is not a number
+		}
+		// Filename is everything from index 8 onward (may contain spaces)
+		name := strings.Join(fields[8:], " ")
+		isDir := fields[0][0] == 'd'
+		cleanName := strings.TrimSuffix(name, "/")
+
+		var mode fs.FileMode = 0444
+		if isDir {
+			mode = fs.ModeDir | 0555
+		}
+
+		info := &bsdFileInfo{
+			name:    cleanName,
+			size:    size,
+			isDir:   isDir,
+			mode:    mode,
+			modTime: time.Time{}, // not used
+		}
+
+		// Store with both original and "./" prefixed forms
+		fsys.files[cleanName] = info
+		if !strings.HasPrefix(cleanName, "./") && cleanName != "." && cleanName != "" {
+			fsys.files["./"+cleanName] = info
+		} else if strings.HasPrefix(cleanName, "./") {
+			fsys.files[strings.TrimPrefix(cleanName, "./")] = info
+		}
+	}
+
+	// Ensure root "." exists
+	if _, ok := fsys.files["."]; !ok {
+		fsys.files["."] = &bsdFileInfo{
+			name:  ".",
+			isDir: true,
+			mode:  fs.ModeDir | 0555,
+		}
+	}
+
+	// DEBUG START
+	if _, ok := fsys.files["index.htm"]; ok {
+		fmt.Println("DEBUG: index.htm found in fsys.files")
+	} else if _, ok := fsys.files["./index.htm"]; ok {
+		fmt.Println("DEBUG: index.htm found as ./index.htm")
+	} else {
+		fmt.Println("DEBUG: index.htm NOT found in fsys.files")
+		fmt.Println("DEBUG: First 15 keys in fsys.files:")
+		count := 0
+		for k := range fsys.files {
+			fmt.Printf("  DEBUG key: %q\n", k)
+			count++
+			if count >= 15 {
+				break
+			}
+		}
+	}
+	// DEBUG END
+
+	return fsys, scanner.Err()
+}
+
+// ReadDir implements fs.ReadDirFS.
+func (fsys *BsdTarFS) ReadDir(dir string) ([]fs.DirEntry, error) {
+	dir = strings.Trim(dir, "/")
+	if dir == "." {
+		dir = ""
+	}
+	var entries []fs.DirEntry
+	for path, info := range fsys.files {
+		// Check if path is directly inside dir
+		parent := path
+		if idx := strings.LastIndex(parent, "/"); idx >= 0 {
+			parent = parent[:idx]
+		} else {
+			parent = ""
+		}
+		if parent != dir {
+			continue
+		}
+		// Extract base name
+		base := path
+		if idx := strings.LastIndex(base, "/"); idx >= 0 {
+			base = base[idx+1:]
+		}
+		entries = append(entries, &bsdDirEntry{
+			name:  base,
+			isDir: info.isDir,
+			info:  info,
+		})
+	}
+	return entries, nil
+}
+
+type bsdDirEntry struct {
+	name  string
+	isDir bool
+	info  fs.FileInfo
+}
+
+func (e *bsdDirEntry) Name() string               { return e.name }
+func (e *bsdDirEntry) IsDir() bool                { return e.isDir }
+func (e *bsdDirEntry) Type() fs.FileMode          { return e.info.Mode().Type() }
+func (e *bsdDirEntry) Info() (fs.FileInfo, error) { return e.info, nil }
+func (f *bsdFile) Stat() (fs.FileInfo, error) {
+	return f.info, nil
+}
+
+// Open implements fs.FS.
+func (fsys *BsdTarFS) Open(name string) (fs.File, error) {
+	// Normalise: trim leading slashes, handle "." and ""
+	name = strings.TrimPrefix(name, "/")
+	if name == "." || name == "" {
+		name = "."
+	}
+	// Try as-is; if not found, try with "./" prefix
+	info, ok := fsys.files[name]
+	if !ok && !strings.HasPrefix(name, "./") {
+		info, ok = fsys.files["./"+name]
+	}
+	if !ok {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+	}
+	if info.isDir {
+		return &bsdDirFile{fsys: fsys, path: name}, nil
+	}
+	// Regular file: stream with bsdtar -xO
+	// Use the original path as stored in the map (might have "./")
+	originalPath := info.name
+	cmd := exec.Command("bsdtar", "-xO", "-f", fsys.isoPath, originalPath)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &bsdFile{
+		ReadCloser: stdout,
+		cmd:        cmd,
+		info:       info,
+	}, nil
+}
+
+// bsdFile implements fs.File for regular files.
+type bsdFile struct {
+	io.ReadCloser
+	cmd  *exec.Cmd
+	info fs.FileInfo
+}
+
+// Stat implements fs.StatFS.
+func (fsys *BsdTarFS) Stat(name string) (fs.FileInfo, error) {
+	// Normalise the path like Open does
+	name = strings.TrimPrefix(name, "/")
+	if name == "" || name == "." {
+		name = "."
+	}
+	// Try exact match, then with "./" prefix
+	info, ok := fsys.files[name]
+	if !ok && !strings.HasPrefix(name, "./") {
+		info, ok = fsys.files["./"+name]
+	}
+	if !ok {
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
+	}
+	return info, nil
+}
+
+// bsdDirFile implements fs.File for directories.
+type bsdDirFile struct {
+	fsys    *BsdTarFS
+	path    string // normalized path (e.g., "." for root)
+	entries []fs.DirEntry
+	offset  int
+	closed  bool
+}
+
+// normalizeDirPath converts an empty or "." path to the canonical "." representation.
+func (d *bsdDirFile) normPath() string {
+	if d.path == "" || d.path == "." {
+		return "."
+	}
+	return d.path
+}
+
+// Stat returns FileInfo for the directory.
+func (d *bsdDirFile) Stat() (fs.FileInfo, error) {
+	path := d.normPath()
+	info, ok := d.fsys.files[path]
+	if !ok {
+		return nil, &fs.PathError{Op: "stat", Path: path, Err: fs.ErrNotExist}
+	}
+	return info, nil
+}
+
+// Read is not supported for directories.
+func (d *bsdDirFile) Read([]byte) (int, error) {
+	return 0, &fs.PathError{Op: "read", Path: d.normPath(), Err: fs.ErrInvalid}
+}
+
+// Close marks the directory as closed.
+func (d *bsdDirFile) Close() error {
+	d.closed = true
+	return nil
+}
+
+// ReadDir reads the contents of the directory.
+func (d *bsdDirFile) ReadDir(n int) ([]fs.DirEntry, error) {
+	if d.closed {
+		return nil, fs.ErrClosed
+	}
+
+	path := d.normPath()
+
+	if d.entries == nil {
+		entries, err := d.fsys.ReadDir(path)
+		if err != nil {
+			return nil, err
+		}
+		d.entries = entries
+	}
+
+	if n <= 0 {
+		// Return all remaining entries
+		result := d.entries[d.offset:]
+		d.offset = len(d.entries)
+		return result, nil
+	}
+
+	end := d.offset + n
+	if end > len(d.entries) {
+		end = len(d.entries)
+	}
+	result := d.entries[d.offset:end]
+	d.offset = end
+	if len(result) == 0 {
+		return nil, io.EOF
+	}
+	return result, nil
 }
