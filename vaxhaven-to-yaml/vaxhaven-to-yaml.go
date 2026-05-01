@@ -24,6 +24,8 @@ type Store = persistentstore.Store[string, int64]
 
 var vaxhaven_prefix = "http://www.vaxhaven.com"
 
+var suppressDuplicateMessage = true // set to false to see any exact duplicates listed
+
 func main() {
 
 	vaxhaven_data := "data/VaxHaven.txt"
@@ -126,8 +128,14 @@ func ParseNewData(filename string, fileSizeStore *Store, verbose bool) map[strin
 		document.Size = fileSize
 		// fmt.Println("document: ", document)
 
-		if _, found := documentsMap[document.PartNum]; found {
-			fmt.Printf("VaxHaven docuemnt repeated: Found [%s, %s] repeated as %s\n", document.PartNum, documentsMap[document.PartNum].PublicUrl, document.PublicUrl)
+		if existing, found := documentsMap[document.PartNum]; found {
+			// Check if the new document is exactly the same as the existing one
+			if suppressDuplicateMessage && existing.PublicUrl == document.PublicUrl && existing.Title == document.Title {
+				// Silent exact duplicate – do nothing
+			} else {
+				fmt.Printf("VaxHaven document repeated: Found [%s, %s, %s] \n                      repeated as [%s, %s, %s]\n",
+					existing.PartNum, existing.PublicUrl, existing.Title, document.PartNum, document.PublicUrl, document.Title)
+			}
 		} else {
 			documentsMap[document.PartNum] = document
 		}
