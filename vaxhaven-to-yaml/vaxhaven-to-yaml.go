@@ -90,7 +90,6 @@ func ParseNewData(filename string, fileSizeStore *Store, verbose bool) map[strin
 	r_rows := regexp.MustCompile(`(?ms)<tr>(.*?)</tr>`)
 	r_data := regexp.MustCompile(`(?ms)<td>\s*<a\s+href="(.*?)".*?>(.*?)</a></td>.*?<td>(.*?)</td>.*?<td>(.*?)</td>`)
 	r_data_no_date := regexp.MustCompile(`(?ms)<td>\s*<a\s+href="(.*?)".*?>(.*?)</a></td>.*?<td>(.*?)</td>`)
-	fmt.Println(r_rows)
 	rows := r_rows.FindAllStringSubmatch(string(file), -1)
 	fmt.Println("Found ", len(rows), "matches")
 	for i, match := range rows {
