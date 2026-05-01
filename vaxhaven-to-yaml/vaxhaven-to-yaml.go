@@ -157,13 +157,32 @@ func CreateVaxHavenDocument(path string) Document {
 // Takes a VAXHaven date, in the format "YYYY Month", where "Month"
 // is specified in full, and converts intoa string of the form "YYYY-MM".
 func ConvertVaxHavenDate(date string) string {
-	if date == "" {
+	date = strings.TrimSpace(date)
+
+	// A blank date is allowed
+	// At least some entries have a date that is "-"; treat that as a blank date rather than an error
+	if date == "" || date == "-" {
 		return ""
 	}
 	if len(date) < 4 {
-		// fmt.Println("TO FIX: Suspicious date: [", date, "]")
+		fmt.Println("TO FIX: Suspicious date [A]: [", date, "]")
 		return "XXXX"
 	}
+
+	// Check for year-only (4 digits)
+	if len(date) == 4 {
+		// If all digits, treat as year
+		if _, err := strconv.Atoi(date); err == nil {
+			return date
+		}
+	}
+
+	// Expect at least "YYYY M"
+	if len(date) < 5 {
+		fmt.Println("TO FIX: Suspicious date [B]: [", date, "]")
+		return "XXXX"
+	}
+
 	year := date[0:4]
 	month := strings.ToLower(strings.TrimSpace(date[5:]))
 	result := "YYYY-MM"
