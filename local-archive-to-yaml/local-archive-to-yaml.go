@@ -127,6 +127,7 @@ type SubstituteFile struct {
 type FileHandlingExceptions struct {
 	FileSubstitutes []SubstituteFile
 	MissingFiles    []MissingFile
+	ResolvedPathMap map[string]string // key: resolved path (volume-scoped), value: original HTML link
 }
 
 type IndirectFileEntry interface{}
@@ -918,6 +919,19 @@ func ParseIndexHtml(fsys fs.FS, filename string, volume string, root string, fil
 			}
 		}
 
+		// Collision detection: track which original HTML path resolved to which final path.
+		// Issue a warning if a truncated path matches an original (untruncated) path.
+		if fileExceptions.ResolvedPathMap == nil {
+			fileExceptions.ResolvedPathMap = make(map[string]string)
+		}
+		keyPath := volume + "/" + resolvedPath
+		if prev, ok := fileExceptions.ResolvedPathMap[keyPath]; ok && prev != linkPath {
+			log.Printf("WARNING: Collision in volume %s: resolved path %q already used for %q, now also for %q. Data may be incorrect.",
+				volume, resolvedPath, prev, linkPath)
+		} else {
+			fileExceptions.ResolvedPathMap[keyPath] = linkPath
+		}
+
 		// 4. Build the Document object
 		md5Sum, _ := CalculateMd5Sum(fsys, volume+"//"+resolvedPath, resolvedPath, md5Store, programFlags.Verbose)
 		docPath := "file:///" + volume + "/" + resolvedPath
@@ -1430,15 +1444,18 @@ func (d *bsdDirFile) ReadDir(n int) ([]fs.DirEntry, error) {
 
 // TruncatePathForBsdTar truncates the filename component of a file path so that
 // the total length of the filename plus its extension (including the dot) does
-// not exceed 64 characters. The extension is defined as the substring starting
+// not exceed BSDTAR_FILENAME_LIMIT (64) characters. The extension is defined as the substring starting
 // with the last dot in the filename. If the path has no dot, the whole filename
-// is truncated to 64 characters.
+// is truncated to BSDTAR_FILENAME_LIMIT characters.
 //
 // The function splits the path into directory and base name, then splits the
 // base name into a name part (everything before the last dot) and an extension
 // part (the last dot and what follows). It shortens the name part to fit within
 // the limit, then reassembles the path. If the original already fits, it returns
 // the original path unchanged.
+
+const BSDTAR_FILENAME_LIMIT = 64
+
 func TruncatePathForBsdTar(originalPath string) string {
 	// Split into directory and base filename
 	dir, base := path.Split(originalPath)
@@ -1446,21 +1463,21 @@ func TruncatePathForBsdTar(originalPath string) string {
 	// Find the last dot to separate extension
 	lastDot := strings.LastIndex(base, ".")
 	if lastDot == -1 {
-		// No extension – truncate whole base to 64 chars
-		if len(base) <= 64 {
+		// No extension – truncate whole base to BSDTAR_FILENAME_LIMIT chars
+		if len(base) <= BSDTAR_FILENAME_LIMIT {
 			return originalPath
 		}
-		newBase := base[:64]
+		newBase := base[:BSDTAR_FILENAME_LIMIT]
 		return path.Join(dir, newBase)
 	}
 
 	namePart := base[:lastDot]
 	extPart := base[lastDot:] // includes the dot
 
-	// Total allowed length for namePart is 64 - len(extPart)
-	maxNameLen := 64 - len(extPart)
+	// Total allowed length for namePart is BSDTAR_FILENAME_LIMIT - len(extPart)
+	maxNameLen := BSDTAR_FILENAME_LIMIT - len(extPart)
 	if maxNameLen < 0 {
-		// Extension alone exceeds 64 – should not happen, but keep original
+		// Extension alone exceeds BSDTAR_FILENAME_LIMIT – should not happen, but keep original
 		fmt.Printf("WARNING: Huge extension: %s\n", originalPath)
 		return originalPath
 	}
