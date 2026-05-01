@@ -139,7 +139,7 @@ func FindAcceptablePaths(filename string) []string {
 			if strings.HasPrefix(path, prefix) {
 				linesOfInterest += 1
 				// Here if the path has a desired prefix
-				fileType := filepath.Ext(path)
+				fileType := .Ext(path)
 				if contains(reject_file_types, strings.ToLower(fileType)) {
 					// This file type should be rejected
 					linesRejected += 1
@@ -201,7 +201,7 @@ func CreateBitsaversDocument(path string) Document {
 	newDocument.PdfModified = ""
 	newDocument.Collection = "bitsavers"
 	newDocument.Size = 0
-	newDocument.Filepath = bitsavers_prefix + path
+	newDocument.PublicUrl = bitsavers_prefix + path
 
 	return newDocument
 }
