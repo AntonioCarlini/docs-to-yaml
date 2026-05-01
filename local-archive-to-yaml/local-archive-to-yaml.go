@@ -113,6 +113,11 @@ type PathAndVolume struct {
 	VolumeName string // Name of the local archive
 }
 
+type NrgPathAndVolume struct {
+	NrgPath    string // Path to the .nrg file itself
+	VolumeName string // The name used for YAML collection labeling
+}
+
 // MissingFile represents the relative path of a missing file.
 type MissingFile struct {
 	Filepath string
@@ -342,6 +347,56 @@ func main() {
 				if key_exists {
 					if (v.Md5 != "") && (v.Md5 == val.Md5) {
 						if *verbose {
+							fmt.Printf("WARNING(1a): Document [%s] already exists, identical to original %v (was %v)\n", k, v, val)
+						}
+					} else {
+						fmt.Printf("WARNING(1): Document [%s] in %s already exists (was %s)\n", k, v.Filepath, val.Filepath)
+						key = k + "DUPLICATE-of-" + val.Filepath
+					}
+				}
+				documentsMap[key] = v
+			}
+			if programFlags.Statistics {
+				fmt.Printf("Found %4d documents in volume %s\n", len(extraDocumentsMap), t.VolumeName)
+			}
+		case NrgPathAndVolume:
+			// Create a temporary mount point
+			mountPoint, err := os.MkdirTemp("", "nrg_mount_*")
+			if err != nil {
+				log.Fatalf("Failed to create temp dir for NRG mount: %v", err)
+			}
+			// Mount using fuseiso
+			cmd := exec.Command("fuseiso", "-p", t.NrgPath, mountPoint)
+			if err := cmd.Run(); err != nil {
+				os.RemoveAll(mountPoint)
+				log.Fatalf("Failed to mount NRG %s: %v", t.NrgPath, err)
+			}
+			// Ensure unmount and cleanup
+			defer func() {
+				// Unmount with fusermount
+				umountCmd := exec.Command("fusermount", "-u", mountPoint)
+				if err := umountCmd.Run(); err != nil {
+					log.Printf("Warning: failed to unmount %s: %v", mountPoint, err)
+				}
+				os.RemoveAll(mountPoint)
+			}()
+			// Process as normal directory
+			fsys := os.DirFS(mountPoint)
+			archive := PathAndVolume{Path: mountPoint, VolumeName: t.VolumeName}
+			extraDocumentsMap := ProcessArchive(fsys, archive, &fileExceptions, md5Store, programFlags)
+			// Merge results (same as PathAndVolume case)
+			if programFlags.Verbose {
+				for i, doc := range extraDocumentsMap {
+					fmt.Println("doc", i, "=>", doc)
+				}
+				fmt.Println("found ", len(extraDocumentsMap), "new documents")
+			}
+			for k, v := range extraDocumentsMap {
+				key := k
+				val, key_exists := documentsMap[k]
+				if key_exists {
+					if (v.Md5 != "") && (v.Md5 == val.Md5) {
+						if programFlags.Verbose {
 							fmt.Printf("WARNING(1a): Document [%s] already exists, identical to original %v (was %v)\n", k, v, val)
 						}
 					} else {
@@ -699,6 +754,7 @@ func ParseIndirectFile(indirectFile string) ([]IndirectFileEntry, error) {
 		regexp.MustCompile(`^\s*truly-missing-file\s*:\s*(.*)$`): IndirectFileProcessMissingFile,
 		regexp.MustCompile(`^\s*iso-godiskfs\s*:\s*(.*)$`):       IndirectFileProcessIsoPathGoDiskFS,
 		regexp.MustCompile(`^\s*iso-bsdtar\s*:\s*(.*)$`):         IndirectFileProcessIsoPathBsdTar,
+		regexp.MustCompile(`^\s*iso-nrg\s*:\s*(.*)$`):            IndirectFileProcessIsoPathNrg,
 	}
 
 	lineNumber := 0
@@ -733,6 +789,8 @@ func ParseIndirectFile(indirectFile string) ([]IndirectFileEntry, error) {
 					case IsoPathAndVolumeWithGoDiskFS:
 						result = append(result, v)
 					case IsoPathAndVolumeBsdTar:
+						result = append(result, v)
+					case NrgPathAndVolume:
 						result = append(result, v)
 					case SubstituteFile:
 						result = append(result, item.(SubstituteFile))
@@ -847,6 +905,18 @@ func IndirectFileProcessIsoPathBsdTar(line string, lineNumber int) (interface{},
 		IsoPath:    p0,
 		VolumeName: p2,
 	}, nil
+}
+
+func IndirectFileProcessIsoPathNrg(line string, lineNumber int) (interface{}, error) {
+	var result NrgPathAndVolume
+	re := regexp.MustCompile(`[^\s"]+|"([^"]*)"`)
+	parts := re.FindAllString(line, -1)
+	if parts == nil || len(parts) != 2 {
+		return result, fmt.Errorf("indirect file line %d: expected 2 fields (nrg-path volume-name), got %d", lineNumber, len(parts))
+	}
+	result.NrgPath = StripOptionalLeadingAndTrailingDoubleQuotes(parts[0])
+	result.VolumeName = StripOptionalLeadingAndTrailingDoubleQuotes(parts[1])
+	return result, nil
 }
 
 // The index HTML files written to the DVDs are almost all in one of two (similar) formats.
