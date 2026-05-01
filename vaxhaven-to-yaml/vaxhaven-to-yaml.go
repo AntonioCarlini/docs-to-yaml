@@ -116,11 +116,11 @@ func ParseNewData(filename string, fileSizeStore *Store, verbose bool) map[strin
 		if len(data[0]) >= 4 {
 			document.PubDate = ConvertVaxHavenDate(docDate)
 			if document.PubDate == "XXXX" {
-				fmt.Printf("Suspicious date [%s] for %s (%s)\n", docDate, document.Title, document.Filepath)
+				fmt.Printf("Suspicious date [%s] for %s (%s)\n", docDate, document.Title, document.PublicUrl)
 			}
 		}
 
-		fileSize, err := CalculatefileSize(document.Filepath, fileSizeStore, verbose)
+		fileSize, err := CalculatefileSize(document.PublicUrl, fileSizeStore, verbose)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -128,7 +128,7 @@ func ParseNewData(filename string, fileSizeStore *Store, verbose bool) map[strin
 		// fmt.Println("document: ", document)
 
 		if _, found := documentsMap[document.PartNum]; found {
-			fmt.Printf("VaxHaven docuemnt repeated: Found [%s, %s] repeated as %s\n", document.PartNum, documentsMap[document.PartNum].Filepath, document.Filepath)
+			fmt.Printf("VaxHaven docuemnt repeated: Found [%s, %s] repeated as %s\n", document.PartNum, documentsMap[document.PartNum].PublicUrl, document.PublicUrl)
 		} else {
 			documentsMap[document.PartNum] = document
 		}
@@ -149,7 +149,7 @@ func CreateVaxHavenDocument(path string) Document {
 	newDocument.PdfModified = ""
 	newDocument.Collection = "VaxHaven"
 	newDocument.Size = 0
-	newDocument.Filepath = path
+	newDocument.PublicUrl = path
 
 	return newDocument
 }
