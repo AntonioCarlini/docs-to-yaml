@@ -1,7 +1,11 @@
 package main
 
 import (
+	"crypto/md5"
+	"docs-to-yaml/internal/persistentstore"
+	"encoding/hex"
 	"testing"
+	"testing/fstest"
 )
 
 // func TestParseIndirectFile(t *testing.T) {
@@ -174,4 +178,68 @@ func TestStripOptionalLeadingAndTrailingDoubleQuotes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCalculateMd5Sum(t *testing.T) {
+	// 1. Setup mock file system and expected values
+	fileContent := []byte("example document content")
+	hasher := md5.New()
+	hasher.Write(fileContent)
+	realMd5 := hex.EncodeToString(hasher.Sum(nil))
+
+	mockFS := fstest.MapFS{
+		"folder/doc.pdf": &fstest.MapFile{Data: fileContent},
+	}
+
+	t.Run("Cache Hit", func(t *testing.T) {
+		// Pre-populate the store with a "fake" hash to prove the function
+		// returns the cached value without reading the file system.
+		fakeHash := "cached-hash-123"
+		store := &persistentstore.Store[string, string]{
+			Data: map[string]string{"vol1//folder/doc.pdf": fakeHash},
+		}
+
+		// CalculateMd5Sum should return the fakeHash immediately.
+		result, err := CalculateMd5Sum(mockFS, "vol1//folder/doc.pdf", "folder/doc.pdf", store, false)
+		if err != nil {
+			t.Fatalf("Unexpected error on cache hit: %v", err)
+		}
+		if result != fakeHash {
+			t.Errorf("Expected cached value %s, but got %s", fakeHash, result)
+		}
+	})
+
+	t.Run("Cache Miss", func(t *testing.T) {
+		// Use an empty store
+		store := &persistentstore.Store[string, string]{
+			Data: make(map[string]string),
+		}
+
+		// CalculateMd5Sum must read the FS, calculate the hash, and update the store.
+		result, err := CalculateMd5Sum(mockFS, "vol1//folder/doc.pdf", "folder/doc.pdf", store, false)
+		if err != nil {
+			t.Fatalf("Unexpected error on cache miss: %v", err)
+		}
+		if result != realMd5 {
+			t.Errorf("Expected calculated hash %s, but got %s", realMd5, result)
+		}
+
+		// Verify the store was actually updated
+		cachedVal, found := store.Lookup("vol1//folder/doc.pdf")
+		if !found || cachedVal != realMd5 {
+			t.Errorf("Persistent store was not updated correctly after cache miss")
+		}
+	})
+
+	t.Run("File Missing Error", func(t *testing.T) {
+		store := &persistentstore.Store[string, string]{
+			Data: make(map[string]string),
+		}
+
+		// Attempt to hash a file that does not exist in our mockFS
+		_, err := CalculateMd5Sum(mockFS, "vol1//missing.txt", "missing.txt", store, false)
+		if err == nil {
+			t.Error("Expected an error when attempting to hash a non-existent file, but got nil")
+		}
+	})
 }
