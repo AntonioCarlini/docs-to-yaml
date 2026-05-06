@@ -29,8 +29,8 @@ func TestDetermineDocumentFormat(t *testing.T) {
 
 func TestDetermineDocumentPropertiesFromPath(t *testing.T) {
 	var doc Document
-	unsetPartNum := "MADE-UP-PN"
-	unsetPubDate := "1758-11-04"
+	unsetPartNum := ""
+	unsetPubDate := ""
 
 	path := "/path/path/bad-part-num_Title_Text_No_Date.pdf"
 	doc = DetermineDocumentPropertiesFromPath(path, false)
