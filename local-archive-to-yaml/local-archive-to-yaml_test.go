@@ -314,3 +314,72 @@ func TestDetermineCategory(t *testing.T) {
 	}
 }
 
+func TestResolvePathCaseInsensitive(t *testing.T) {
+	mockFS := fstest.MapFS{
+		"Folder/SubFolder/Document.pdf": &fstest.MapFile{Data: []byte("pdf data")},
+		"images/PHOTO.JPG":              &fstest.MapFile{Data: []byte("image data")},
+		// This filename is exactly 64 characters total (60 chars + ".txt").
+		// This matches what TruncatePathForBsdTar produces for long names.
+		"ThisIsAVeryLongFileNameThatWillBeTruncatedByBsdTarToSixtyFou.txt": &fstest.MapFile{Data: []byte("truncated")},
+	}
+
+	tests := []struct {
+		name          string
+		input         string
+		expectedPath  string
+		expectedError bool
+	}{
+		{
+			name:          "Exact Match",
+			input:         "Folder/SubFolder/Document.pdf",
+			expectedPath:  "Folder/SubFolder/Document.pdf",
+			expectedError: false,
+		},
+		{
+			name:          "Windows Slashes and Case Mismatch",
+			input:         "folder\\SUBFOLDER\\document.PDF",
+			expectedPath:  "Folder/SubFolder/Document.pdf",
+			expectedError: false,
+		},
+		{
+			name:          "Traverse Up with .. (Normal)",
+			input:         "Folder/SubFolder/../SubFolder/Document.pdf",
+			expectedPath:  "Folder/SubFolder/Document.pdf",
+			expectedError: false,
+		},
+		{
+			name:          "Traverse Above Root (Should stay at root)",
+			input:         "../../Folder/SubFolder/Document.pdf",
+			expectedPath:  "Folder/SubFolder/Document.pdf",
+			expectedError: false,
+		},
+		{
+			name: "BSD Tar Truncation Fallback",
+			// Input is 73 chars. The function should mangle it to 64 chars and find the match.
+			input:         "ThisIsAVeryLongFileNameThatWillBeTruncatedByBsdTarToSixtyFourCharsLong.txt",
+			expectedPath:  "ThisIsAVeryLongFileNameThatWillBeTruncatedByBsdTarToSixtyFou.txt",
+			expectedError: false,
+		},
+		{
+			name:          "File Not Found (Returns Error)",
+			input:         "Folder/MissingFile.txt",
+			expectedPath:  "",
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := resolvePathCaseInsensitive(mockFS, tt.input)
+
+			if (err != nil) != tt.expectedError {
+				t.Fatalf("For input %q, expected error: %v, but got: %v", tt.input, tt.expectedError, err)
+			}
+
+			if result != tt.expectedPath {
+				t.Errorf("For input %q, expected path %q, but got %q", tt.input, tt.expectedPath, result)
+			}
+		})
+	}
+}
+
