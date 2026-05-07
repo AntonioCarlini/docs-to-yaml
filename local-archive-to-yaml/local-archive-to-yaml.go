@@ -1018,7 +1018,7 @@ func ParseIndexHtml(fsys fs.FS, filename string, volume string, root string, fil
 			// If filepaths differ, it's a true duplicate (same content, different location)
 			if newDocument.Filepath != documentsMap[key].Filepath {
 				previousFilePath := documentsMap[key].Filepath
-				// Create the specialized key seen in your YAML
+				// Create the specialized key seen in the YAML
 				newKey := key + "DUPLICATE" + strings.Replace(previousFilePath, "/", "_", 20)
 				documentsMap[newKey] = newDocument
 			}
@@ -1054,7 +1054,12 @@ func BuildNewLocalDocument(fsys fs.FS, title string, partNum string, filePath st
 	}
 
 	var newDocument Document
-	newDocument.Format = DetermineFileFormat(filePath)
+	newDocument.Format, err = DetermineFileFormat(filePath)
+	if err != nil {
+		// Log a warning and skip the file
+		fmt.Printf("Warning: Skipping file %s due to %v\n", filePath, err)
+		newDocument.Format = "UNKNOWN-DUE-TO-ERROR"
+	}
 	newDocument.Size = filestats.Size()
 	newDocument.Md5 = md5Checksum
 	newDocument.Title = strings.TrimSuffix(strings.TrimSpace(title), "\n")
@@ -1097,7 +1102,7 @@ func BuildCaseInsensitivePathGlob(path string) string {
 // Similarly "JPG" will be returned as "JPEG".
 var KnownFileTypes = [...]string{"PDF", "TXT", "MEM", "RNO", "PS", "HTM", "HTML", "ZIP", "LN3", "TIF", "JPG", "JPEG"}
 
-func DetermineFileFormat(filename string) string {
+func DetermineFileFormat(filename string) (string, error) {
 	filetype := strings.TrimPrefix(strings.ToUpper(path.Ext(filename)), ".")
 	if filetype == "HTM" {
 		filetype = "HTML"
@@ -1108,11 +1113,10 @@ func DetermineFileFormat(filename string) string {
 
 	for _, entry := range KnownFileTypes {
 		if entry == filetype {
-			return filetype
+			return filetype, nil
 		}
 	}
-	log.Fatal("Unknown filetype: ", filetype)
-	return "???"
+	return "", fmt.Errorf("unknown filetype: %s", filetype)
 }
 
 // Clean up a document title that has been read from HTML.

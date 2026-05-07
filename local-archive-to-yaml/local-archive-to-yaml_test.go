@@ -383,3 +383,51 @@ func TestResolvePathCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestDetermineFileFormat(t *testing.T) {
+	tests := []struct {
+		name          string
+		filename      string
+		expected      string
+		expectedError bool
+	}{
+		{
+			name:          "Standard PDF",
+			filename:      "document.pdf",
+			expected:      "PDF",
+			expectedError: false,
+		},
+		{
+			name:          "Normalization: HTM to HTML",
+			filename:      "index.htm",
+			expected:      "HTML",
+			expectedError: false,
+		},
+		{
+			name:          "Normalization: JPE to JPEG",
+			filename:      "photo.jpe",
+			expected:      "JPEG",
+			expectedError: false,
+		},
+		{
+			name:          "Unknown Extension",
+			filename:      "song.mp3",
+			expected:      "",
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := DetermineFileFormat(tt.filename)
+
+			if (err != nil) != tt.expectedError {
+				t.Fatalf("For %s, expected error: %v, but got: %v", tt.filename, tt.expectedError, err)
+			}
+
+			if result != tt.expected {
+				t.Errorf("For %s, expected %s, but got %s", tt.filename, tt.expected, result)
+			}
+		})
+	}
+}
+
