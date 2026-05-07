@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"docs-to-yaml/internal/persistentstore"
 	"encoding/hex"
+	"io/fs"
 	"testing"
 	"testing/fstest"
 )
@@ -243,3 +244,73 @@ func TestCalculateMd5Sum(t *testing.T) {
 		}
 	})
 }
+
+func TestDetermineCategory(t *testing.T) {
+	tests := []struct {
+		name     string
+		files    fstest.MapFS
+		expected ArchiveCategory
+	}{
+		{
+			name: "Regular Archive",
+			// Needs index.htm to be valid
+			files: fstest.MapFS{
+				"index.htm": &fstest.MapFile{Data: []byte("<html></html>")},
+			},
+			expected: AC_Regular,
+		},
+		{
+			name: "HTML Archive",
+			// Needs INDEX.HTM and /HTML
+			// Must NOT have index.htm (lowercase) or it triggers conflict
+			files: fstest.MapFS{
+				"INDEX.HTM": &fstest.MapFile{Data: []byte("<html></html>")},
+				"HTML/":     &fstest.MapFile{Mode: fs.ModeDir},
+			},
+			expected: AC_HTML,
+		},
+		{
+			name: "Metadata Archive",
+			// Needs index.htm to pass the validity check
+			files: fstest.MapFS{
+				"index.htm": &fstest.MapFile{Data: []byte("<html></html>")},
+				"metadata/": &fstest.MapFile{Mode: fs.ModeDir},
+			},
+			expected: AC_Metadata,
+		},
+		{
+			name: "Custom Archive (CRC File)",
+			// Needs index.htm to pass the validity check
+			files: fstest.MapFS{
+				"index.htm":    &fstest.MapFile{Data: []byte("<html></html>")},
+				"DEC_0040.CRC": &fstest.MapFile{Data: []byte("some-crc-data")},
+			},
+			expected: AC_Custom,
+		},
+		{
+			name: "Invalid (Conflict: HTML and Metadata)",
+			// Triggers the "conflicting files" check in the INDEX.HTM block[cite: 3]
+			files: fstest.MapFS{
+				"INDEX.HTM": &fstest.MapFile{Data: []byte("<html></html>")},
+				"HTML/":     &fstest.MapFile{Mode: fs.ModeDir},
+				"metadata/": &fstest.MapFile{Mode: fs.ModeDir},
+			},
+			expected: AC_Undefined,
+		},
+		{
+			name:     "Invalid (Empty FS - No index.htm)",
+			files:    fstest.MapFS{},
+			expected: AC_Undefined,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			category := DetermineCategory(tt.files, "test-volume")
+			if category != tt.expected {
+				t.Errorf("Expected category %v, but got %v", tt.expected, category)
+			}
+		})
+	}
+}
+
