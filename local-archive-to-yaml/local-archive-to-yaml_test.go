@@ -431,3 +431,50 @@ func TestDetermineFileFormat(t *testing.T) {
 	}
 }
 
+func TestTruncatePathForBsdTar(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Short Name - No Change",
+			input:    "short.txt",
+			expected: "short.txt",
+		},
+		{
+			name:     "Exactly 64 Characters",
+			input:    "this_filename_is_exactly_sixty_four_characters_long_now_righ.txt",
+			expected: "this_filename_is_exactly_sixty_four_characters_long_now_righ.txt",
+		},
+		{
+			name: "Long Name - Truncated with Extension",
+			// Input is 73 characters
+			input: "ThisIsAVeryLongFileNameThatWillBeTruncatedByBsdTarToSixtyFourCharsLong.txt",
+			// Result should be 60 chars of name + 4 chars of extension = 64 total
+			expected: "ThisIsAVeryLongFileNameThatWillBeTruncatedByBsdTarToSixtyFou.txt",
+		},
+		{
+			name:     "Long Name - No Extension",
+			input:    "ThisIsAVeryLongFileNameWithNoExtensionAtAllThatIsWayOverTheSixtyFourCharacterLimit",
+			expected: "ThisIsAVeryLongFileNameWithNoExtensionAtAllThatIsWayOverTheSixty",
+		},
+		{
+			name:     "Edge Case - Extension Longer Than 64",
+			input:    "file.this_extension_is_actually_longer_than_the_entire_allowed_limit_for_the_filename",
+			expected: "file.this_extension_is_actually_longer_than_the_entire_allowed_limit_for_the_filename",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := TruncatePathForBsdTar(tt.input)
+			if result != tt.expected {
+				t.Errorf("For input %q, expected %q, but got %q", tt.input, tt.expected, result)
+			}
+			if len(result) > 64 && tt.name != "Edge Case - Extension Longer Than 64" {
+				t.Errorf("Resulting filename is too long: %d chars", len(result))
+			}
+		})
+	}
+}
