@@ -139,7 +139,7 @@ func FindAcceptablePaths(filename string) []string {
 			if strings.HasPrefix(path, prefix) {
 				linesOfInterest += 1
 				// Here if the path has a desired prefix
-				fileType := .Ext(path)
+				fileType := filepath.Ext(path)
 				if contains(reject_file_types, strings.ToLower(fileType)) {
 					// This file type should be rejected
 					linesRejected += 1
