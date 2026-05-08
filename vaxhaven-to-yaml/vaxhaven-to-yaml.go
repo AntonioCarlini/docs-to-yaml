@@ -191,6 +191,12 @@ func ConvertVaxHavenDate(date string) string {
 	}
 
 	year := date[0:4]
+	// Ensure the extracted 4 characters are actually a valid number
+	if _, err := strconv.Atoi(year); err != nil {
+		fmt.Printf("TO FIX: Suspicious year format [%s] in date [%s]\n", year, date)
+		return "XXXX"
+	}
+
 	month := strings.ToLower(strings.TrimSpace(date[5:]))
 	result := "YYYY-MM"
 	if len(month) < 1 {
