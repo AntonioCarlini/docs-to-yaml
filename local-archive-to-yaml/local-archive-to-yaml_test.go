@@ -478,3 +478,69 @@ func TestTruncatePathForBsdTar(t *testing.T) {
 		})
 	}
 }
+
+func TestParseIndexHtml(t *testing.T) {
+	// 1. Setup a mock filesystem
+	mockFS := fstest.MapFS{
+		"index.htm": &fstest.MapFile{Data: []byte(`
+			<TR VALIGN=TOP>
+				<TD> <A HREF="manuals/ssm.txt"> DEC-S8-OSSMB-A-D
+				<TD> OS/8 SOFTWARE SUPPORT MANUAL
+			</TR>
+			<TR VALIGN=TOP>
+				<TD> <A HREF="manuals/install.pdf"> DEC-00-INST-A
+				<TD> Installation Guide
+			</TR>
+			<TR VALIGN=TOP>
+				<TD> <A HREF="missing.pdf"> DEC-99-MISS
+				<TD> This file is missing
+			</TR>
+		`)},
+		"manuals/ssm.txt":     &fstest.MapFile{Data: []byte("content 1")},
+		"manuals/install.pdf": &fstest.MapFile{Data: []byte("content 2")},
+	}
+
+	// 2. Setup dependencies using field names
+	md5Store := &persistentstore.Store[string, string]{
+		Data: make(map[string]string),
+	}
+
+	// FIXED: Use the correct struct name 'MissingFile'
+	exceptions := &FileHandlingExceptions{
+		MissingFiles: []MissingFile{
+			{Filepath: "missing.pdf"},
+		},
+	}
+
+	flags := ProgamFlags{Verbose: false, ReadEXIF: false}
+
+	// 3. Execute the function
+	docs := ParseIndexHtml(mockFS, "index.htm", "VOL1", ".", exceptions, md5Store, flags)
+
+	// 4. Assertions
+	t.Run("Count and Skipping", func(t *testing.T) {
+		if len(docs) != 2 {
+			t.Errorf("Expected 2 documents, but got %d", len(docs))
+		}
+	})
+
+	t.Run("Content Extraction", func(t *testing.T) {
+		found := false
+		for _, doc := range docs {
+			if doc.PartNum == "DEC-S8-OSSMB-A-D" {
+				found = true
+				if doc.Title != "OS/8 SOFTWARE SUPPORT MANUAL" {
+					t.Errorf("Title mismatch: got %q", doc.Title)
+				}
+				expectedURL := "file:///VOL1/manuals/ssm.txt"
+				// FIXED: Using 'Filepath' as the field name for the URL
+				if doc.Filepath != expectedURL {
+					t.Errorf("Path mismatch: expected %q, got %q", expectedURL, doc.Filepath)
+				}
+			}
+		}
+		if !found {
+			t.Error("Document DEC-S8-OSSMB-A-D not found in results")
+		}
+	})
+}
