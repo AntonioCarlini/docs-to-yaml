@@ -172,11 +172,12 @@ func FindAcceptablePaths(filename string) []string {
 
 	sort.Strings(docs)
 
-	fmt.Printf("Processed                    %7d lines\n", linesRead)
-	fmt.Printf("Lines in suitable directory: %7d lines\n", linesOfInterest)
-	fmt.Printf("Lines rejected for filetype: %7d lines\n", linesRejected)
-	fmt.Printf("Lines accepted:              %7d lines\n", linesAccedpted)
-	fmt.Printf("Documents produced:          %7d lines\n", len(docs))
+	// If these info needs to be printed then a statistics option or similar will need to be added
+	// fmt.Printf("Processed                    %7d lines\n", linesRead)
+	// fmt.Printf("Lines in suitable directory: %7d lines\n", linesOfInterest)
+	// fmt.Printf("Lines rejected for filetype: %7d lines\n", linesRejected)
+	// fmt.Printf("Lines accepted:              %7d lines\n", linesAccedpted)
+	// fmt.Printf("Documents produced:          %7d lines\n", len(docs))
 
 	return docs
 }
@@ -281,34 +282,33 @@ func MakeDocumentsFromPaths(md5File string, documentPaths []string, md5Store *pe
 
 		key := "bitsavers@" + path
 		if md5_store_found {
-			newDocument.Md5 = md5_store_checksum
 			key = md5_store_checksum
 			newDocument.Md5 = md5_store_checksum
 		} else {
-			newDocument.Md5 = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 			if part_num_found {
 				newDocument.Md5 = "PART: " + newDocument.PartNum
 			} else {
 				newDocument.Md5 = "TITLE: " + newDocument.Title
 			}
+			key = newDocument.Md5 // FIX: Update the map key so deduplication works!
 			fmt.Println("entry without MD5:    ", path)
-			if md5_store_found {
-				fmt.Printf("Found in new store but not old: %s\n", path)
-			}
 		}
 
 		if _, exists := documentsMap[key]; exists {
 			duplicateKey += 1
 			fmt.Printf("Duplicate key: [%s] (existing = %v\n", key, documentsMap[key])
+			continue // Skip adding this document so we keep the first one found
 		}
 		documentsMap[key] = newDocument
 	}
 
-	fmt.Printf("Given documents              %7d lines\n", len(documentPaths))
-	fmt.Printf("Rejected documents           %7d lines\n", droppedDocument)
-	fmt.Printf("Duplicate keys               %7d lines\n", duplicateKey)
-	fmt.Printf("Expected documents           %7d lines\n", len(documentPaths)-droppedDocument-duplicateKey)
-	fmt.Printf("Final documents              %7d lines\n", len(documentsMap))
+	if verbose {
+		fmt.Printf("Given documents              %7d lines\n", len(documentPaths))
+		fmt.Printf("Rejected documents           %7d lines\n", droppedDocument)
+		fmt.Printf("Duplicate keys               %7d lines\n", duplicateKey)
+		fmt.Printf("Expected documents           %7d lines\n", len(documentPaths)-droppedDocument-duplicateKey)
+		fmt.Printf("Final documents              %7d lines\n", len(documentsMap))
+	}
 
 	return documentsMap
 }
