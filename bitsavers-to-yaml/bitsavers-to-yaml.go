@@ -121,7 +121,7 @@ func FindAcceptablePaths(filename string) []string {
 	// Include only those with an acceptable prefix.
 	// Of those, reject any with an undesirable suffix (e.g. ".jpg").
 
-	var docs []string
+	docs := make([]string, 0)
 
 	scanner := bufio.NewScanner(file)
 	linesRead := 0
@@ -133,6 +133,9 @@ func FindAcceptablePaths(filename string) []string {
 		var parts []string
 		var path string
 		parts = strings.Fields(scanner.Text())
+		if len(parts) < 3 {
+			continue
+		}
 		path = parts[2]
 		for _, prefix := range dec_prefixes {
 			linesRead += 1
